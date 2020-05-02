@@ -71,7 +71,7 @@ Currently, all directions are obtained from the google maps api. Get a key [here
 
 ### Map material
 
-If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. The [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system (aka `epsg:4326`). Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option.
+If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. For a small scale (up to a few 100 km) [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system (aka `epsg:4326`). Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option. For data on a larger scale, check out the [Natural Earth website](https://www.naturalearthdata.com/) which also has great maps, some of which are used in this project (to remove locations on water).
 
 ### Some knowledge about projections
 
