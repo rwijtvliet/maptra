@@ -10,7 +10,7 @@ Script to create an image of Hamburg, showing how to get where on foot.
 
 from maptra import Map, CreateLocations
 
-Map.set_gmaps_api_key("apikey") #Put in your own api key string.
+Map.set_gmaps_api_key("your key here") #Put in your own api key string.
 
 # Create. (Second argument: 'bicycling', 'walking', 'transit', or 'driving')
 m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking') #not my actual address ;)
