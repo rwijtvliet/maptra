@@ -41,6 +41,8 @@ Changing the transportation mode from `walking` to `transit`, and tweaking a few
 
 ![image](examples/sample2/map_transit.png)
 
+(Each color represents a different transportation mode, such as 'walking', 'bus', 'subway', 'train', etc.)
+
 ### Sample script, 3
 
 There is a somewhat larger `sample3.py` script included in the repo as well, which I used to create these maps:
