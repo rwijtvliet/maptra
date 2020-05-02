@@ -41,8 +41,13 @@ There is a somewhat larger `sample.py` script included in the repo.
 
 Some example maps I've created with a friend's appartment as the starting point:
 
+Route to various locations:
 ![image](examples/lines_on_color_medium.png)
+
+How fast you get to those locations:
 ![image](examples/voronoi_speed_medium.png)
+
+How long it takes to get there, plus the route, in a trippy color scheme:
 ![image](examples/trippy_medium.png)
 
 ## What you need
@@ -51,7 +56,7 @@ Some example maps I've created with a friend's appartment as the starting point:
 
 This project wouldn't be anywhere if it weren't for great projects it heavily depends on.
 Most dependencies are relatively standard, like `numpy`, `pandas`, `geopandas`, `shapely`.
-Others are a bit less common, but still installable with `pip`. These are `pygeodesy` (working with lat-lon-points on a globe), `googlemaps` (wrapper for google maps api), `colorama` (to output colored text to the console),  
+Others are a bit less common, but still installable with `pip`. These are `pygeodesy` (working with lat-lon-points on a globe), `googlemaps` (wrapper for google maps api), `colorama` (to output colored text to the console). There might be dependencies of dependencies, but you'll be made aware if a package is missing. 
 
 ### Api key
 
