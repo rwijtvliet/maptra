@@ -31,7 +31,7 @@ viz.savefig(f'sample_short.png', minwidth=800, minheight=800)
 
 Here the output:
 
-![image](sample_short.png)
+![image](examples/sample_short.png)
 
 ### Sample script, 2
 
@@ -65,3 +65,20 @@ Currently, all directions are obtained from the google maps api. Get a key [here
 ### Map material
 
 If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. The [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system. Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option.
+
+### Knowledge about projections
+
+When creating a visualization, you'll need to pick a crs (coordinate reference system). There are many to choose from, but not all work for every geographical area. A good resource is the website [epsg.io](https://epsg.io/). By default, `Visualization` uses the Mercator projection (aka 'epsg:3395'), which keeps north/south lines vertical and east/west lines horizontal anywhere on the map. It's good enough for small geographic areas, especially those that don't have a large latitude (i.e., north-south) span and are not near the poles.
+
+Here a quick comparison that shows the mercator distortion is minor on a map spanning 300 km, but becomes quite noticable on one spanning 3000 km. It is compared to the crs 'epsg:5243' that is more suitable for europe:
+
+`epsg:3395` (i.e., Mercator) | `epsg:5243`
+:-------------------------:|:-------------------------:
+![](examples/crs/3395_northgermany.png)  |  ![](examples/crs/5243_northgermany.png)
+![](examples/crs/3395_europe.png)  |  ![](examples/crs/5243_europe.png)
+
+
+
+
+
+ 

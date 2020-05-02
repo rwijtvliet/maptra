@@ -6,11 +6,11 @@ Created on Sat May  2 11:56:11 2020
 @author: Ruud Wijtvliet, rwijtvliet@gmail.com
 """
 
-from maptra import Map, CreateLocations, Visualization
+from maptra import Map, CreateLocations, Visualization, Location
 
 Map.set_gmaps_api_key("your key here") #Put in your own api key string.
 
-m = Map((53.563, 9.928), 'walking')
+m = Map(Location([53.563, 9.928]))
 locas = CreateLocations.on_hexagonal_grid(m.start, 1000, [4000])
 m.add_locations(locas)
 

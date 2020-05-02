@@ -18,7 +18,6 @@ from .memoize import memoize_immutable, memoize_mutable
 from typing import Iterable, List, Tuple, Dict, Set, Any, Union, Callable
 import numpy as np
 import geopandas as gpd
-import shapely.geometry as sg
 import googlemaps
 import pandas as pd
 import pickle

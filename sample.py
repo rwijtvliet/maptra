@@ -12,9 +12,9 @@ from maptra import Map, CreateLocations
 
 Map.set_gmaps_api_key("apikey") #Put in your own api key string.
 
-# Create.
+# Create. (Second argument: 'bicycling', 'walking', 'transit', or 'driving')
 m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking') #not my actual address ;)
-filtr = CreateLocations.geofilter()
+filtr = CreateLocations.geofilter() #filter out locations on water
 locas = CreateLocations.on_circular_grid(m.start, 1_000, [10_000], geofilter=filtr)
 m.add_locations(locas)
 
@@ -26,7 +26,7 @@ m.to_pickle("hamburg_walking_1000_10000.pkl") # To save on api-calls.
 from maptra import Visualization
 import geopandas as gpd
 
-viz = Visualization(m, crs='epsg:3395') #a good crs for Germany.
+viz = Visualization(m, crs='epsg:5243') #Usable for Europe
 
 # Background map:
     
