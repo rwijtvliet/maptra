@@ -8,9 +8,11 @@ Using the google maps api.
 ### Sample script
 
 ```python
+#sample1.py
+
 from maptra import Map, CreateLocations, Visualization, Location
 
-Map.set_gmaps_api_key("apikey") #Put in your own api key string.
+Map.set_gmaps_api_key("your key here") #Put in your own api key string.
 
 m = Map(Location([53.563, 9.928]))
 locas = CreateLocations.on_hexagonal_grid(m.start, 1000, [4000])
@@ -26,29 +28,31 @@ viz.add_lines()
 viz.add_startpoint()
 viz.showfig()
 
-viz.savefig(f'sample_short.png', minwidth=800, minheight=800)
+viz.savefig('map_walking.png', minwidth=800, minheight=800)
 ```
 
 Here the output:
 
-![image](examples/sample_short.png)
+![image](examples/sample1/map_walking.png)
 
-### Sample script, 2
+### Sample script 2
 
-There is a somewhat larger `sample.py` script included in the repo.
+Changing the transportation mode from `walking` to `transit`, and tweaking a few visualization parameters (see `sample2.py`), the map becomes:
 
-### Gallery
+![image](examples/sample2/map_transit.png)
 
-Some example maps I've created with a friend's appartment as the starting point:
+### Sample script, 3
+
+There is a somewhat larger `sample3.py` script included in the repo as well, which I used to create these maps:
 
 Route to various locations:
-![image](examples/lines_on_color_medium.png)
+![image](examples/sample3/lines_on_color_medium.png)
 
 How fast you get to those locations:
-![image](examples/voronoi_speed_medium.png)
+![image](examples/sample3/voronoi_speed_medium.png)
 
 How long it takes to get there, plus the route, in a trippy color scheme:
-![image](examples/trippy_medium.png)
+![image](examples/sample3/trippy_medium.png)
 
 ## What you need
 

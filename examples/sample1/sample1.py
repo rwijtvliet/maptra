@@ -24,4 +24,4 @@ viz.add_lines()
 viz.add_startpoint()
 viz.showfig()
 
-viz.savefig(f'hamburg_walking.png', minwidth=800, minheight=800)
+viz.savefig('map_walking.png', minwidth=800, minheight=800)
