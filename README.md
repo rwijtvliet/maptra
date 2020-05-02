@@ -8,11 +8,11 @@ Using the google maps api.
 ### Sample script
 
 ```python
-from maptra import Map, CreateLocations, Visualization
+from maptra import Map, CreateLocations, Visualization, Location
 
 Map.set_gmaps_api_key("apikey") #Put in your own api key string.
 
-m = Map((53.563, 9.928), 'walking')
+m = Map(Location([53.563, 9.928]))
 locas = CreateLocations.on_hexagonal_grid(m.start, 1000, [4000])
 m.add_locations(locas)
 
@@ -57,6 +57,7 @@ How long it takes to get there, plus the route, in a trippy color scheme:
 This project wouldn't be anywhere if it weren't for great projects it heavily depends on.
 Most dependencies are relatively standard, like `numpy`, `pandas`, `geopandas`, `shapely`.
 Others are a bit less common, but still installable with `pip`. These are `pygeodesy` (working with lat-lon-points on a globe), `googlemaps` (wrapper for google maps api), `colorama` (to output colored text to the console). There might be dependencies of dependencies, but you'll be made aware if a package is missing. 
+Ah, and I've written this for python >= 3.8.
 
 ### Api key
 
@@ -64,11 +65,11 @@ Currently, all directions are obtained from the google maps api. Get a key [here
 
 ### Map material
 
-If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. The [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system. Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option.
+If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. The [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system (aka `epsg:4326`). Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option.
 
 ### Knowledge about projections
 
-When creating a visualization, you'll need to pick a crs (coordinate reference system). There are many to choose from, but not all work for every geographical area. A good resource is the website [epsg.io](https://epsg.io/). By default, `Visualization` uses the Mercator projection (aka 'epsg:3395'), which keeps north/south lines vertical and east/west lines horizontal anywhere on the map. It's good enough for small geographic areas, especially those that don't have a large latitude (i.e., north-south) span and are not near the poles.
+When creating a visualization, you'll need to pick a crs (coordinate reference system). There are many to choose from, but not all work for every geographical area. A good resource is the website [epsg.io](https://epsg.io/). By default, `Visualization` uses the Mercator projection (aka `epsg:3395`), which keeps north/south lines vertical and east/west lines horizontal anywhere on the map. It's good enough for small geographic areas, especially those that don't have a large latitude (i.e., north-south) span and are not near the poles.
 
 Here a quick comparison that shows the mercator distortion is minor on a map spanning 300 km, but becomes quite noticable on one spanning 3000 km. It is compared to the crs 'epsg:5243' that is more suitable for europe:
 
