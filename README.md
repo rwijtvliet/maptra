@@ -73,7 +73,7 @@ Currently, all directions are obtained from the google maps api. Get a key [here
 
 If you want to include roads, rivers, areas, etc. in your map, you'll need to get some shape files. The [OSMaxx website](https://osmaxx.hsr.ch) is a great resource for this, as it's free and versatile. You can select the area you are interested in; select the 'Esri Shapefile' in 'WGS 84' coordinate system (aka `epsg:4326`). Pick the detail level you want, and keep in mind the dataset can get pretty large for the 'full detail' option.
 
-### Knowledge about projections
+### Some knowledge about projections
 
 When creating a visualization, you'll need to pick a crs (coordinate reference system). There are many to choose from, but not all work for every geographical area. A good resource is the website [epsg.io](https://epsg.io/). By default, `Visualization` uses the Mercator projection (aka `epsg:3395`), which keeps north/south lines vertical and east/west lines horizontal anywhere on the map. It's good enough for small geographic areas, especially those that don't have a large latitude (i.e., north-south) span and are not near the poles.
 
