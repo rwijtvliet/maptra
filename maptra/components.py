@@ -243,10 +243,10 @@ class Directions:
     Here an example when going from Hamburg to Rome.
     If mode in ['walking', 'bicycling', 'driving']:
       * All steps have the same structure, with keys 'travel_mode', 'start_location', 
-        'end_location', 'polyline', 'distance', 'duration'. (All also have 
+        'end_location', 's', 'distance', 'duration'. (All also have 
         'html_instructions', and some have 'maneuver', but these are of no 
-        interest.). All steps have the same value for 'travel_mode': 'WALKING',
-        'BICYCLING', or 'DRIVING'.
+        interest.). All steps have the same value for the key 'travel_mode':
+        namely 'WALKING', 'BICYCLING', or 'DRIVING'.
       * For walking and bicycling, there are many steps: ~1300 in this case.
         For driving, there are much less: 53 in this case. At the level of the
         individual steps, we know the distance and duration.
@@ -258,8 +258,11 @@ class Directions:
         'start_location', 'end_location', 'polyline', 'distance', 'duration' 
         (and 'html_instructions'), plus one more key. The value for 'travel_mode'
         is either 'WALKING' or 'TRANSIT'. 
-        If 'travel_mode' == 'WALKING', there is also the key 'steps', which is a
-        nested stucture that is equal to that as above. 
+        If 'travel_mode' == 'WALKING', there is also the (nested) key 'steps', 
+        which in itself is a stucture equal to that described above. We don't need 
+        to access the nested steps if we're only interested in the cumulative
+        walking route; the step['polyline']['point'] contains the route in full
+        resolution.
         If 'travel_mode' == 'TRANSIT', there is also the key 'transit_details', 
         which is a nested dictionary and its most important keys are 
         step['transit_details']['departure_stop']['location'],
@@ -269,8 +272,8 @@ class Directions:
       * There are very few steps: 9 in this case. Again, at the level of the 
         individual steps, we know the distance and duration.
       * Decoding the step['polyline']['points'] for each step, and concatenating
-        (possibly split by vehicle type), we get ~38_000 individual (lat, lon)-
-        points.
+        (possibly split by vehicle type if this distinction is wanted), we get 
+        ~38_000 individual (lat, lon)-points.
     The best way to reduce the number of points per route to a manageble level
     is by starting with the decoded polylines, and then reducing the number of
     points with an algorithm, e.g. Douglas-Peucker.
