@@ -149,11 +149,11 @@ class Map:
         parameters taken from standard class variables."""
         return Directions(self._start, end, **self._gmapsparameters)
 
-    def spoof_directions(self):
-        """Make up random route to each location, so that no api-calls need to 
-        be made. (debugging purposes only)"""
+    def spoof(self, spoof:bool=True):
+        """Make up random directions to each location, so that no api-calls need to 
+        be made. (debugging purposes only) """
         for d in self._df['directions']:
-            d.spoof_api_result()
+            d.spoof(spoof)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -193,35 +193,34 @@ class Map:
         routes that include that subpath)."""               
         return self.__route_forest_structure().subpaths
     
-    def __modes_forest_structure(self) -> Dict[str, ForestStruct]:
-        modes_paths = {}
+    def __carriers_forest_structure(self) -> Dict[str, ForestStruct]:
+        carrier_paths = {}
         for d in self.df['directions']:
-            for step in d.steps:
-                modes_paths.setdefault(step['mode'], []).append(step['route'])
-        modes_fs = {}
-        for mode, paths in modes_paths.items():
+            for step in d.steps():
+                carrier_paths.setdefault(step.carrier(), []).append(step.route())
+        carrier_fs = {}
+        for carrier, paths in carrier_paths.items():
             fs = ForestStruct()
             fs.add_path(*paths)
-            modes_fs[mode] = fs
-        return modes_fs
+            carrier_fs[carrier] = fs
+        return carrier_fs
     @property
-    def modes_forest(self) -> Dict[str, List]:
-        """Return current route forest, per transportation mode, as {mode: tree-
-        list}-dictionary. Wherever forking occurs, a list is inserted. NB: when
-        transportation modes are mixed, there is no longer just a single tree in 
-        each forest."""
-        return {mode: fs.forest for mode, fs in self.__modes_forest_structure().items()}
+    def carriers_forest(self) -> Dict[str, List]:
+        """Return current route forest, per carrier, as {carrier: tree-list}-
+        dictionary. Wherever forking occurs, a list is inserted. NB: when
+        carriers are mixed, there is no longer just a single tree in each forest."""
+        return {carrier: fs.forest for carrier, fs in self.__carriers_forest_structure().items()}
     @property
-    def modes_subpaths(self) -> Dict[str, Dict[int, List]]:
-        """Return non-forking subpaths of current route forest, in {mode: 
-        {count: paths}}-dictionary, with first key being the transportation mode, 
+    def carriers_subpaths(self) -> Dict[str, Dict[int, List]]:
+        """Return non-forking subpaths of current route forest, in {carrier: 
+        {count: paths}}-dictionary, with first key being the transport carrier, 
         and second key the degeneracy (i.e., number of start-to-end routes that 
         include that subpath)."""
-        return {mode: fs.subpaths for mode, fs in self.__modes_forest_structure().items()}
+        return {carrier: fs.subpaths for carrier, fs in self.__carriers_forest_structure().items()}
     @property
-    def modes(self) -> Set[str]:
-        """Return set of all unique travel modes in this map's directions."""
-        return set.union(*[d.modes for d in self.df['directions']])
+    def carriers(self) -> Set[str]:
+        """Return set of all unique transport carriers in this map's directions."""
+        return set.union(*[d.carriers() for d in self.df['directions']])
 
      
 class CreateLocations:

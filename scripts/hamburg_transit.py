@@ -1,37 +1,28 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script to create an image of Hamburg, showing how to get where on foot.
+Script to create an image of Hamburg, showing how to get where on by transit.
 
 @author: Ruud Wijtvliet, rwijtvliet@gmail.com
 """
 
 # %% Imports.
 
-import os
-os.chdir(os.path.dirname(__file__))
 from maptra import Map, CreateLocations, Location
-import herepy
 
-# %% Set-up.
-
-# with open('apikey.txt') as f:
-#     apikey = f.read().strip()
-#     Map.set_gmaps_api_key(apikey)
+with open('apikey.txt') as f:
+    apikey = f.read().strip()
+    Map.set_gmaps_api_key(apikey)
 
 # Create.
-# m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking')
-m = Map.from_coords((54,9), 'walking')
+m = Map.from_coords((54,9), 'transit')
 filtr = CreateLocations.geofilter()
-# m.add_locations(CreateLocations.on_circular_grid(m.start, 1_000, [10_000], geofilter=filtr))
-m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [10_000], geofilter=filtr))
-m.spoof_directions()
+m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
 
 # Save.
-# m.to_pickle("pickle/hamburg_walking_1000_10000.pkl")
+m. to_pickle("pickle/hamburg_transit_5000_10000.pkl")
 # Load.
 # m = Map.from_pickle("pickle/hamburg_walking_1000_10000.pkl")
-# 
 
 # %% Visualize.
 
@@ -40,9 +31,9 @@ import geopandas as gpd
 viz = Visualization(m)# 'EPSG:25832') #) #, 'epsg:4326')#, 
 
 # Background map:
-show_detail = True
+is_detailed = False
 #   a) Background map: world/europe scale.
-scale = ('50m', '10m')[show_detail]
+scale = ('50m', '10m')[is_detailed]
 viz.add_background_fromfile(f'data/world/naturalearth/{scale}_cultural/ne_{scale}_admin_0_countries_lakes.shp', color='grey', alpha=0.2)
 # viz.add_background_fromfile(f'data/world/naturalearth/{scale}_physical/ne_{scale}_land.shp', color='grey', alpha=0.2)
 # viz.add_background_fromfile(f'data/experimental/eurogeographics/DATA/Countries/DE/RoadL.shp', color='red', alpha=0.2)
@@ -58,9 +49,9 @@ colors = {('orchar', 'farm', 'plant_nursery', 'meadow',):'#e1f4cb',
 # for types, color in colors.items():
 #     viz.add_background(gdf[gdf['type'].isin(types)], color=color, alpha=0.3)
 
-base_path = 'data/hamburg/osmaxx/' + ('simplified/', 'detailed/')[show_detail]
+base_path = 'data/hamburg/osmaxx/' + ('simplified/', 'detailed/')[is_detailed]
 # viz.add_background_fromfile(base_path + 'road_l.shp', color='#290022', alpha=0.4)
-# viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=0.2)
+viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=0.2)
 # viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=0.8)
 
 # viz.add_background_fromfile(base_path + 'road_l.shp', color='grey', alpha=1, linewidth=0.1)
@@ -70,11 +61,11 @@ base_path = 'data/hamburg/osmaxx/' + ('simplified/', 'detailed/')[show_detail]
 
 # Content: 
 viz.add_voronoi('duration', 0, alpha=0.9)
-viz.add_lines(alpha=1, minimum_width=0.7, color='white')
-viz.add_startpoint(alpha=1, color='grey', markersize=90)
-viz.add_endpoints(marker='o', color='grey')
-# viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
-viz.showfig(0.03)
+viz.add_lines(alpha=1, minimum_width=0.7)
+viz.add_startpoint(alpha=1, color='blue', markersize=90)
+viz.add_endpoints(marker='o', color='green')
+viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
+viz.showfig(1)
 
 # %% Save file.
 

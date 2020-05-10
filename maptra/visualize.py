@@ -49,30 +49,30 @@ from .voronoi_finite_polygons_2d import voronoi_finite_polygons_2d
 from typing import Dict, List, Union, Iterable, Tuple, Optional, Callable
 
 class Styles:
-    def style(mode):
+    def style(carrier):
         default = {'color': '#646613', 'linestyle': '-'}
-        if mode == 'WALKING':
+        if carrier == 'WALKING':
             return {**default, 'color': '#66131d', 'linestyle': '--'}
-        elif mode == 'SUBWAY':
+        elif carrier == 'SUBWAY':
             return {**default, 'color': '#136622'}
-        elif mode == 'COMMUTER_TRAIN':
+        elif carrier == 'COMMUTER_TRAIN':
             return {**default, 'color': '#135766'}
-        elif mode == 'HEAVY_RAIL' or mode == 'LONG_DISTANCE_TRAIN':
+        elif carrier == 'HEAVY_RAIL' or carrier == 'LONG_DISTANCE_TRAIN':
             return {**default, 'color': '#5c6613'}
-        elif mode == 'BUS':
+        elif carrier == 'BUS':
             return {**default, 'color': '#131d66'}
-        elif mode == 'DRIVING':
+        elif carrier == 'DRIVING':
             return {**default, 'color': '#661346'}
-        elif mode == 'BICYCLING':
+        elif carrier == 'BICYCLING':
             return {**default, 'color': '#664413'}
-        elif mode == 'FERRY':
+        elif carrier == 'FERRY':
             return {**default, 'color': '#331366'}
         else:
             return default
-    def color(mode):
-        return Styles.style(mode)['color']
-    def linestyle(mode):
-        return Styles.style(mode)['linestyle']
+    def color(carrier):
+        return Styles.style(carrier)['color']
+    def linestyle(carrier):
+        return Styles.style(carrier)['linestyle']
 
 CRS_LONLAT = 'epsg:4326'
 
@@ -230,20 +230,20 @@ class Visualization:
         """Add routes, to get from start to end locations, as lines to figure.
         var_width ('not', 'lin', or 'log') sets how linewidth varies (not, linearly,
         or logarithmically) with number of routes that include it. minimum_width is 
-        in points. By default, the color changes with transportation mode. All 
+        in points. By default, the color changes with transportation carrier. All 
         kwargs (e.g., color) are passed to the plot (GeoSeries.plot) function 
         and can be used to override these values.
         """
         #Get data.
-        df_path = pd.DataFrame([{'path': p, 'count': cnt, 'mode': mode} 
-                                for mode, subpaths in self._map.modes_subpaths.items() 
+        df_path = pd.DataFrame([{'path': p, 'count': cnt, 'carrier': carrier} 
+                                for carrier, subpaths in self._map.carriers_subpaths.items() 
                                 for cnt, paths in subpaths.items() for p in paths])
         df_path['linewidth'] = minimum_width 
         if var_width[:3].lower() == 'lin':
             df_path['linewidth'] *= df_path['count']
         elif var_width[:3].lower() == 'log':
             df_path['linewidth'] *= np.log(df_path['count']) + 1
-        df_path['color'] = df_path['mode'].apply(lambda x: Styles.color(x))
+        df_path['color'] = df_path['carrier'].apply(lambda x: Styles.color(x))
         gdf_path = self.gdf_linestring_fromroutes(df_path['path'])
         self._map.save() #Save, as previous action might have caused many api-calls.
         
@@ -261,11 +261,11 @@ class Visualization:
         same speed. All kwargs are passed to the plot (ax.quiver) function."""
         #Get data.
         s_dirs = self._map.df_success['directions']
-        df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.distancing_speed),
-                           'duration': s_dirs.apply(lambda x: x.duration)})
+        df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.crow_speed()),
+                           'duration': s_dirs.apply(lambda x: x.duration())})
         av_speed = df['speed'].mean()        
-        gs1 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end)).geometry
-        gs2 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.corrected_end(av_speed))).geometry
+        gs1 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end())).geometry
+        gs2 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end_durationcorrected(av_speed))).geometry
         self._map.save()#Save, as previous action might have caused many api-calls.
            
         #Create arrows (quiver) of displacement, and save.
@@ -290,12 +290,12 @@ class Visualization:
         speed with which one gets there (if show == 'speed'). All kwargs 
         are passed to the plot (geopandas.plot_polygon_collection) function."""
         if show.lower() == 'duration':
-            show_func = lambda d: d.duration
+            show_func = lambda d: d.duration()
             label = 'Time needed to get to point [s]'
             if cmap is None:
                 cmap = 'RdYlGn_r'
         elif show.lower() == 'speed':
-            show_func = lambda d: d.distancing_speed
+            show_func = lambda d: d.crow_speed()
             label = 'Velocity to get to point, measured by air-distance [m/s]'
             if cmap is None:
                 cmap = 'RdYlGn'
@@ -304,10 +304,10 @@ class Visualization:
                 
         #Get data.
         s_dirs = self._map.df_success['directions']
-        mask = s_dirs.apply(lambda x: x.route[-1]).duplicated()
+        mask = s_dirs.apply(lambda x: x.route()[-1]).duplicated()
         s_dirs = s_dirs[~mask]  #keep only one route per end point.
         values = s_dirs.apply(show_func)
-        locas = s_dirs.apply(lambda x: Location(x.route[-1])) \
+        locas = s_dirs.apply(lambda x: Location(x.route()[-1])) \
                       .append(pd.Series([self._map.start])) #Add start point to keep region around it empty.
         gdf_locs = self.gdf_point_fromlocations(locas)
         self._map.save() #save, as previous action might have caused many api-calls.
@@ -356,7 +356,7 @@ class Visualization:
         #Get data.
         s_dirs = self._map.df_success['directions']
         if asfound:
-            s = [Location(coords) for coords in s_dirs.apply(lambda x: x.route[-1]).unique()]
+            s = [Location(coords) for coords in s_dirs.apply(lambda x: x.route()[-1]).unique()]
         else:
             s = s_dirs.apply(lambda x: x.end)
         gdf = self.gdf_point_fromlocations(s)

@@ -22,13 +22,13 @@ with open('apikey.txt') as f:
     client = googlemaps.Client(key=apikey)
     Location.set_gmaps_client(client)
     Directions.set_gmaps_client(client)
-                                
+                               
 d = Directions(Location.from_address('Stresemannstrasse 326, Hamburg'), 
                Location.from_address('berlin kitkat club'), mode='transit',
                departure_time=datetime(2020, 5, 20, 12))
 
-res = d.api_result[0]['legs'][0]
-steps = d.api_result[0]['legs'][0]['steps']
+res = d.api_result()
+steps = d.steps()
 
 
 #%%
@@ -155,7 +155,7 @@ class Step():
         
 def steps(api_result) -> List[Step]:
     """Parse api_result and return list of Step-objects contained within."""
-    result = api_result[0]['legs'][0]
+    result = api_result()[0]['legs'][0]
     dura_cum = dist_cum = 0  #duration since start of route, EXCL current step.
     steps = []
     for step in result['steps']:
