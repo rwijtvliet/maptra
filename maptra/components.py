@@ -225,158 +225,222 @@ class Step1:
     
 class Movement:
     """
-    Base class for the Directions and the Step class.
-    Cannot be used on its own.
-    Child classes must implement following properties (possibly as attribute):
-        ._origin, ._start, ._end (Locations)
-        ._start_distance, ._start_duration (floats)
-        .bbox()
+    Parent class for the Directions, Step, and Hop classes.
+    
+    In order to use without overriding any methods or attributes, child classes
+    must implement following methods/attributes:
+        ._start, ._routestart, ._end (Locations)
+        ._prior_distance, ._prior_duration (floats)
+        .bbox
+        .route
         .api_result()
-        .route()
+
     Additionally, child classes can override any properties/methods of this class.
-    Many methods have parameter 'cumul', which is used to choose between calcu-
-    lating from the start (cumul == False) or the origin (cumul == True, default),
-    with the start being the start point of the movement, and origin the start
-    of all preceding movements. Distinction is only relevant for Steps, not for
-    Directions.        
     """
     
-    def start(self, cumul:bool=True) -> Location:
+    @property
+    def start(self) -> Location:
         """Return start Location."""
-        return self._origin if cumul else self._start
-
+        return self._start
+    
+    @property
+    def routestart(self) -> Location:
+        """Return Location at start of the section for which a route is available."""
+        return self._routestart
+    
+    @property
     def end(self) -> Location:
         """Return end Location."""
         return self._end
     
-    def distance(self, cumul:bool=True, fraction=1) -> float:
-        """Distance of this movement over-the-road, in meters. 'fraction' ==
-        0 (distance at start), 1 (at end), 0..1 (in between)."""
-        return (self._start_distance if cumul else 0) + \
-            fraction * self.api_result()['distance']['value']
-            
-    def duration(self, cumul:bool=True, fraction=1) -> float:
-        """Duration of this movement over-the-road, in seconds. 'fraction' ==
-        0 (duration at start), 1 (at end), 0..1 (in between)."""
-        return (self._start_duration if cumul else 0) + \
-            fraction * self.api_result()['duration']['value']
     
-    def on_route(self, coords, max_dist:float=10) -> float:
-        """If point with 'coords' lies on route, return fraction (0..1) between
-        start and end it's found at. Fraction calculated from aerial distance to
-        both points. 'Lie on route' defined as: one of route points lies in square 
-        with half-sidelength 'max_side' around the point. Return False otherwise.
-        Fraction only usable if movement is single step."""
+    # @property
+    # def distance(self) -> float:
+    #     """Cumulative distance over-the-road at end of this movement, in meters."""
+    #     return self._prior_distance + self.api_result()['distance']['value']
+
+    def get_distance(self, cumul:bool=True, fraction=1) -> float:
+        """Distance of this movement over-the-road, in meters. 'fraction' ==
+        0 (distance at start), 1 (at end), 0..1 (in between), linear interp."""
+        return (self._prior_distance if cumul else 0) + \
+            fraction * self.api_result()['distance']['value']
+    distance = property(get_distance)
+    # @property
+    # def duration(self) -> float:
+    #     """Cumulative duration at the end of this movement, in seconds."""
+    #     return self._prior_duration + self.api_result()['duration']['value']
+     
+    def get_duration(self, cumul:bool=True, fraction=1) -> float:
+        """Duration of this movement over-the-road, in seconds. 'fraction' ==
+        0 (duration at start), 1 (at end), 0..1 (in between), linear interp."""
+        return (self._prior_duration if cumul else 0) + \
+            fraction * self.api_result()['duration']['value']
+    duration = property(get_duration)
+            
+    @property
+    def crow_distance(self) -> float:
+        """Cumulative distance as-the-crow-flies at end of this movement, in meters."""
+        return self.start.ll.distanceTo(self.end.ll)
+
+    @property
+    def crow_bearing(self) -> float:
+        """Bearing as-the-crow-flies from start to end of this movement, in degrees."""
+        return self.start.ll.initialBearingTo(self.end.ll)
+    
+    @property
+    def crow_speed(self) -> float:
+        """Speed as-the-crow-flies from start to end of this movement, in meters per second."""
+        if (dura := self.duration) is not None and dura > 0:
+            return self.crow_distance / dura    
+        
+    @property  
+    def distance_factor(self) -> float:
+        """Ratio between as-the-crow-flies distance and over-the-road distance, 
+        from origin to end of this movement."""
+        if (road := self.distance) is not None:
+            if (crow := self.crow_distance) == 0:
+                return 1 #if distance by air == 0, start and end must be same, so no distance.
+            else:
+                return crow / road          
+    
+    def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
+        """If point with 'coords' lies on route, return estimate for cumulative
+        distance and duration when reaching the point. Return False otherwise."""
         #Fast check: inside bounding box.
-        bbox = self.bbox()
+        bbox = self.bbox
         if not (bbox[0] <= coords[0] <= bbox[2]
             and bbox[1] <= coords[1] <= bbox[3]):
             return False
         #Slower check: within lat-lon rect around point.
         deltalatlim = np.rad2deg(max_dist / 6356000)
         deltalonlim = deltalatlim / np.cos(np.deg2rad(coords[0]))
-        for p in self.route():
-            if not (-deltalatlim < coords[0] - p[0] < deltalatlim
+        for p in self.route:
+            if (-deltalatlim < coords[0] - p[0] < deltalatlim
                 and -deltalonlim < coords[1] - p[1] < deltalonlim):
-                continue
-            #Found point. Return fraction.
-            dist_to_start = great_circle(coords, self.start(False).coords).m
-            dist_to_end = great_circle(coords, self.end().coords).m
-            return dist_to_start / (dist_to_start + dist_to_end)
+                #Found point. Return values.
+                dist_to_rstart = great_circle(coords, self.routestart.coords).m
+                dist_to_end = great_circle(coords, self.end.coords).m
+                f = dist_to_rstart / (dist_to_rstart + dist_to_end)
+                return (self.get_distance(True, f), self.get_duration(True, f))
         return False
-            
-    def crow_distance(self, cumul:bool=True) -> float:
-        """Return distance as-the-crow-flies, in meters."""
-        return self.start(cumul).ll.distanceTo(self.end().ll)
-
-    def crow_bearing(self, cumul:bool=True) -> float:
-        """Return (initial) bearing as-the-crow flies, in degrees."""
-        return self.start(cumul).ll.initialBearingTo(self.end().ll)
     
-    def crow_speed(self, cumul:bool=True) -> float:
-        """How fast the movement is increasing the (air-)distance from start,
-        in relation to duration (in meters per second)."""
-        if (dura := self.duration(cumul)) is not None and dura > 0:
-            return self.crow_distance(cumul) / dura
-        
-    def distance_factor(self, cumul:bool=True) -> float:
-        """How fast the movement is increasing the (air-)distance from start,
-        as fraction of actual (over-the-road-)distance."""
-        if (road := self.distance(cumul)) is not None:
-            if (crow := self.crow_distance(cumul)) == 0:
-                return 1 #if distance by air == 0, start and end must be same, so no distance.
-            else:
-                return crow / road
-            
-    def end_durationcorrected(self, crow_speed:float, cumul:bool=True) -> Location:
-        """Where end location would be, if movement had provided (instead of 
-        actual) 'crow speed', while keeping its duration. Location in same 
-        compass direction (bearing) as the original."""
-        corrected_crow_distance = crow_speed * self.duration(cumul)
-        strt = self.start(cumul).ll
-        return Location.from_latlon(strt.destination(corrected_crow_distance, strt.initialBearingTo(self.end().ll)))
+    def end_durationcorrected(self, crow_speed:float) -> Location:
+        """Where end location would be, if cumulative movement had given
+        (instead of actual) 'crow speed', while keeping its duration. 
+        Location in same compass direction (bearing) as the original."""
+        dist, bear = crow_speed * self.duration, self.crow_bearing
+        return Location.from_latlon(self.start.ll.destination(dist, bear))
   
-    def end_distancecorrected(self, distance_factor:float, cumul:bool=True) -> Location:
-        """Where end location would be, if movement had provided (instead of
-        actual) 'distance factor', while keeping its (over-the-road-)distance."""
-        corrected_crow_distance = distance_factor * self.distance(cumul)
-        strt = self.start(cumul).ll
-        return Location.from_latlon(strt.destination(corrected_crow_distance, strt.ll.initialBearingTo(self.end().ll)))
+    def end_distancecorrected(self, distance_factor:float) -> Location:
+        """Where end location would be, if cumularive movement had given
+        (instead of actual) 'distance factor', while keeping its (over-the-road-)
+        distance. Location in same compass direction (bearing) as original."""
+        dist, bear = distance_factor * self.distance, self.crow_bearing
+        return Location.from_latlon(self.start.ll.destination(dist, bear))  
 
+
+class Hop(Movement):
+    """
+    Type of Movement that has very limited information about getting from start to end:
+    * duration, distance - across all transportation means;
+    * no route.
+    """
+    
+    def __init__(self, start:Location, end:Location, distance, duration):
+        self._start = start
+        self._routestart = None
+        self._end = end
+        self._distance = distance
+        self._duration = duration
+    
+    # def get_distance(self, cumul:bool=True, fraction=1) -> float:
+    #     """Distance of this movement over-the-road, in meters. 'fraction' ==
+    #     0 (distance at start), 1 (at end), 0..1 (in between), linear interp."""
+    #     return fraction * self._distance
+            
+    @property
+    def distance(self) -> float:
+        return self._distance
+    
+    @property
+    def duration(self) -> float:
+        return self._duration
+    
+    @property
+    def on_route(self, coords, max_dist) -> bool:
+        return False
+    
     
 class Step(Movement):
-    def __init__(self, api_result_step:str, start_duration:float, start_distance:float,
-                 origin: Location):
+    """
+    Type of Movement that has partial information about getting from start to end:
+    * duration, distance - across all transportation means;
+    * route - for SINGLE transportation means (i.e., last one necessary to reach end).
+    """
+    
+    def __init__(self, api_result_step:str, prior_duration:float, prior_distance:float,
+                 start:Location):
         self._api_result_step = api_result_step
-        self._start = Location.from_dict(api_result_step['start_location'])
+        self._start = start
+        self._routestart = Location.from_dict(api_result_step['start_location'])
         self._end = Location.from_dict(api_result_step['end_location'])
-        self._origin = origin #initial start point, i.e., of first movement preceding this one.
-        self._start_duration = start_duration
-        self._start_distance = start_distance
-        lats, lons = zip(*self.route())
+        self._prior_duration = prior_duration
+        self._prior_distance = prior_distance
+        lats, lons = zip(*self.route)
         self._bbox = (min(lats), min(lons), max(lats), max(lons)) #TODO: verify order
 
     def api_result(self) -> str:
         """Return the unaltered api-result of this step."""
         return self._api_result_step
     
+    @property
     def travel_mode(self) -> str:
         """Return one of {'WALKING', 'DRIVING', 'BICYCLING', 'TRANSIT'}."""
         return self.api_result()['travel_mode']
-    
+    @property
     def vehicle_type(self) -> str:
         """If travel_mode == 'TRANSIT', return one of {RAIL, METRO_RAIL, SUBWAY, TRAM,
         MONORAIL, HEAVY_RAIL, COMMUTER_TRAIN, HIGH_SPEED_TRAIN, LONG_DISTANCE_TRAIN,
         BUS, INTERCITY_BUS, TROLLEYBUS, SHARE_TAXI, FERRY, CABLE_CAR, GONDOLA_LIFT,
         FUNICULAR, OTHER}. Return None otherwise."""
-        if self.travel_mode() == 'TRANSIT':
+        if self.travel_mode == 'TRANSIT':
             return self.api_result()['transit_details']['line']['vehicle']['type'] 
-    
+    @property
     def carrier(self) -> str:
         """Return travel_mode (if it is one of {'WALKING', 'BICYCLING', 'DRIVING'}) 
         or, if it is 'TRANSIT', return vehicle_type.""" 
-        if (travel_mode := self.travel_mode()) != 'TRANSIT':
+        if (travel_mode := self.travel_mode) != 'TRANSIT':
             return travel_mode
         else:
-            return self.vehicle_type()
+            return self.vehicle_type
+        
+    @property
+    def bbox(self) -> Tuple[float]:
+        """Bounding box of points on route."""
+        return self._bbox
     
     def extend_route(self, coords) -> None:
         self._routeend = coords
     
+    @property
     def route(self) -> List[Tuple]:
-        """Return route of movement as list of (lat, lon)-tuples."""
+        """Route of this movement as list of (lat, lon)-tuples."""
         coordlist = [(p['lat'], p['lng']) for p in 
                      decode_polyline(self.api_result()['polyline']['points'])]
         try:
             return coordlist + [self._routeend]
         except AttributeError:
             return coordlist
-        
-    def bbox(self) -> Tuple[float]:
-        """Return bounding box of points in route."""
-        return self._bbox
+    
+
     
 class Directions(Movement):
+    """
+    Type of Movement that has full information about getting from start to end:
+    * duration, distance - across all transportation means;
+    * route - across all transportation means;
+    * individual Steps.
+    """
     
     _gmaps = None
     @classmethod
@@ -385,26 +449,27 @@ class Directions(Movement):
         
     def __init__(self, start:Location, end:Location, **gmapsparameters):
         self._full_api_result = None #Finding directions: None: to-try, []: failed, [...]: success
-        self._start = self._origin = start
+        self._start = self._routestart = start
         self._end = end
         self._gmapsparameters = gmapsparameters
-        self._start_duration = 0
-        self._start_distance = 0
+        self._prior_duration = 0
+        self._prior_distance = 0
 
     def mode(self) -> str: #Overrides .mode of Movement class
          return self._gmapsparameters['mode'].upper()
 
+    @property 
     def travel_modes(self) -> Set[str]:
         """Return set of all unique travel modes in these directions."""
-        return set([s.travel_mode() for s in self.steps()])
-    
+        return set([s.travel_mode for s in self.steps()])
+    @property
     def vehicle_types(self) -> Set[str]:
         """Return set of all unique vehicle types in these directions."""
-        return set([s.vehicle_type() for s in self.steps()])
-    
+        return set([s.vehicle_type for s in self.steps()])
+    @property
     def carriers(self) -> Set[str]:
         """Return set of all unique carriers in these directions."""
-        return set([s.carrier() for s in self.steps()])
+        return set([s.carrier for s in self.steps()])
         
     def spoof(self, spoof:bool=True):
         """Make up random api-result with a few steps, so that no api-calls need 
@@ -413,8 +478,8 @@ class Directions(Movement):
             self._full_api_result = None
             return
         lldict = lambda coords: {k: v for k, v in zip(('lat', 'lng'), coords)}
-        start_coords = np.array(self.start().coords)
-        end_coords = np.array(self.end().coords)
+        start_coords = np.array(self.start.coords)
+        end_coords = np.array(self.end.coords)
         delta_coords = end_coords - start_coords
         stepcount = random.randint(3, 9)
         middle_coords = lambda i: start_coords + delta_coords * (i / (stepcount-1) + np.random.normal(0, 0.1, 2))
@@ -443,31 +508,49 @@ class Directions(Movement):
         if self._full_api_result is None:    #No attempt made to find directions yet.
             if self._gmaps is None:
                 raise ValueError("A gmaps client is needed; set with 'set_gmaps_client'.")
-            self._full_api_result = self._gmaps.directions(self.start().coords, 
-                                    self.end().coords, **self._gmapsparameters)  # Try to find directions.
+            self._full_api_result = self._gmaps.directions(self.start.coords, 
+                                    self.end.coords, **self._gmapsparameters)  # Try to find directions.
         if not self._full_api_result:        #Attempt was made, but unsuccessful.
             return None
         else:                                #Attempt was made and successful.
             return self._full_api_result
-        
+    
     def api_result(self) -> str:    
         return self.__get_full_api_result()[0]['legs'][0]
  
+    @property
     def bbox(self) -> Tuple[float]:
-        """Return bounding box of points in route."""
+        """Bounding box of points in route."""
         bounds = self.__get_full_api_result()[0]['bounds']
         return (bounds['southwest']['lat'], bounds['southwest']['lng'], 
                 bounds['northeast']['lat'], bounds['northeast']['lng'])
     
+    @property
     def route(self) -> List[Tuple]:
         """Return route of movement as list of (lat, lon)-tuples."""
-        coordlist = [p for s in self.steps() for p in s.route()]
+        return [p for s in self.steps() for p in s.route]    
+        coordlist = [p for s in self.steps() for p in s.route] #TODO:delete    
         if len(coordlist) > 1: #don't return route if it has only one point
             return coordlist
         else:
-            return [self.start().coords, self.start().coords]
-       
+            return [self.start.coords, self.start.coords]
 
+    #Overwrite original method in Movement class for something better.
+    def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
+        """If point with 'coords' lies on route, return estimate for cumulative
+        distance and duration when reaching the point. Return False otherwise."""
+        #Fast check: inside bounding box of directions.
+        bbox = self.bbox
+        if not (bbox[0] <= coords[0] <= bbox[2]
+            and bbox[1] <= coords[1] <= bbox[3]):
+            return False
+        #More precise: check per step.
+        for step in self.steps():
+            if (result := step.on_route(coords, max_dist)):
+                return result
+        #Not found on any of the steps.            
+        return False
+    
     @memoize_immutable
     def steps(self) -> List[Step]:
         """Parse api_result and return list of Step-objects contained within."""
@@ -480,12 +563,36 @@ class Directions(Movement):
                               - ar['departure_time']['value']
             except (KeyError, TypeError):
                 pass
-            steps.append(Step(ar_step, dist_cum, dura_cum, self.start()))
+            steps.append(Step(ar_step, dist_cum, dura_cum, self.start))
             dura_cum += ar_step['duration']['value']
             dist_cum += ar_step['distance']['value']
         #...then, make sure the entire route (across steps) is gapless...   
         for s0, s1 in zip(steps[:-1], steps[1:]):
-            if not np.isclose(s0.end().coords, strt:=s1.start(False).coords, atol=1e-5).all():
+            if not np.isclose(s0.end.coords, strt:=s1.routestart.coords, atol=1e-5).all():
                 s0.extend_route(strt)
         #...finally: only steps with actual routes.
-        return [s for s in steps if len(s.route())>1]
+        return [s for s in steps if len(s.route)>1]
+#%%
+
+class Test:
+    
+    def __init__(self, *x):
+        self._x = list(x)
+    
+    def get_val(self, i=0):
+        return self._x[i]
+    
+    def set_val(self, val, i=0):
+        self._x[i] = val
+        
+    first = property(get_val, set_val)
+    second = property(lambda t: t.get_val(1), lambda t, val: t.set_val(val, 1))
+    third = property(lambda t: t.get_val(2), lambda t, val: t.set_val(val, 2))
+    
+t = Test('one', True, 3.14, 34)
+t.get_val()   #'one'
+t.first       #'one'
+t.get_val(1)  #True 
+t.second      #True
+t.get_val(2)  #3.14
+t.third       #3.14

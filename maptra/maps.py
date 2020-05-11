@@ -197,7 +197,7 @@ class Map:
         carrier_paths = {}
         for d in self.df['directions']:
             for step in d.steps():
-                carrier_paths.setdefault(step.carrier(), []).append(step.route())
+                carrier_paths.setdefault(step.carrier, []).append(step.route)
         carrier_fs = {}
         for carrier, paths in carrier_paths.items():
             fs = ForestStruct()

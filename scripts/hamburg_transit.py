@@ -15,7 +15,7 @@ with open('apikey.txt') as f:
     Map.set_gmaps_api_key(apikey)
 
 # Create.
-m = Map.from_coords((54,9), 'transit')
+m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
 filtr = CreateLocations.geofilter()
 m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
 
@@ -51,8 +51,8 @@ colors = {('orchar', 'farm', 'plant_nursery', 'meadow',):'#e1f4cb',
 
 base_path = 'data/hamburg/osmaxx/' + ('simplified/', 'detailed/')[is_detailed]
 # viz.add_background_fromfile(base_path + 'road_l.shp', color='#290022', alpha=0.4)
-viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=0.2)
-# viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=0.8)
+# viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=0.2)
+viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=0.8)
 
 # viz.add_background_fromfile(base_path + 'road_l.shp', color='grey', alpha=1, linewidth=0.1)
 # viz.add_background_fromfile(base_path + 'railway_l.shp', color='grey', alpha=0.7, linewidth=0.1)
@@ -60,12 +60,12 @@ viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=
 
 
 # Content: 
-viz.add_voronoi('duration', 0, alpha=0.9)
+viz.add_voronoi('duration', 0.1, alpha=0.9)
 viz.add_lines(alpha=1, minimum_width=0.7)
 viz.add_startpoint(alpha=1, color='blue', markersize=90)
 viz.add_endpoints(marker='o', color='green')
 viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
-viz.showfig(1)
+viz.showfig(0.1)
 
 # %% Save file.
 

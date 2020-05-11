@@ -261,10 +261,10 @@ class Visualization:
         same speed. All kwargs are passed to the plot (ax.quiver) function."""
         #Get data.
         s_dirs = self._map.df_success['directions']
-        df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.crow_speed()),
-                           'duration': s_dirs.apply(lambda x: x.duration())})
+        df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.crow_speed),
+                           'duration': s_dirs.apply(lambda x: x.duration)})
         av_speed = df['speed'].mean()        
-        gs1 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end())).geometry
+        gs1 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end)).geometry
         gs2 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end_durationcorrected(av_speed))).geometry
         self._map.save()#Save, as previous action might have caused many api-calls.
            
@@ -290,12 +290,12 @@ class Visualization:
         speed with which one gets there (if show == 'speed'). All kwargs 
         are passed to the plot (geopandas.plot_polygon_collection) function."""
         if show.lower() == 'duration':
-            show_func = lambda d: d.duration()
+            show_func = lambda d: d.duration
             label = 'Time needed to get to point [s]'
             if cmap is None:
                 cmap = 'RdYlGn_r'
         elif show.lower() == 'speed':
-            show_func = lambda d: d.crow_speed()
+            show_func = lambda d: d.crow_speed
             label = 'Velocity to get to point, measured by air-distance [m/s]'
             if cmap is None:
                 cmap = 'RdYlGn'
@@ -304,10 +304,16 @@ class Visualization:
                 
         #Get data.
         s_dirs = self._map.df_success['directions']
-        mask = s_dirs.apply(lambda x: x.route()[-1]).duplicated()
+        
+        # TODO:check if correct
+        s_dirs = pd.Series([step 
+                 for steparray in s_dirs.apply(lambda d: d.steps())
+                 for step in steparray])       
+        
+        mask = s_dirs.apply(lambda x: x.route[-1]).duplicated()
         s_dirs = s_dirs[~mask]  #keep only one route per end point.
         values = s_dirs.apply(show_func)
-        locas = s_dirs.apply(lambda x: Location(x.route()[-1])) \
+        locas = s_dirs.apply(lambda x: Location(x.route[-1])) \
                       .append(pd.Series([self._map.start])) #Add start point to keep region around it empty.
         gdf_locs = self.gdf_point_fromlocations(locas)
         self._map.save() #save, as previous action might have caused many api-calls.
@@ -356,7 +362,7 @@ class Visualization:
         #Get data.
         s_dirs = self._map.df_success['directions']
         if asfound:
-            s = [Location(coords) for coords in s_dirs.apply(lambda x: x.route()[-1]).unique()]
+            s = [Location(coords) for coords in s_dirs.apply(lambda x: x.route[-1]).unique()]
         else:
             s = s_dirs.apply(lambda x: x.end)
         gdf = self.gdf_point_fromlocations(s)
