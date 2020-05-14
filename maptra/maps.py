@@ -11,7 +11,7 @@ on the map can be reached.
 
 """
 
-from .components import Location, Directions
+from .components import Location, Directions, Step, Hop
 from .forest import ForestStruct
 from .memoize import memoize_immutable, memoize_mutable
 
@@ -149,11 +149,11 @@ class Map:
         parameters taken from standard class variables."""
         return Directions(self._start, end, **self._gmapsparameters)
 
-    def spoof(self, spoof:bool=True):
+    def spoof(self, do_spoof:bool=True):
         """Make up random directions to each location, so that no api-calls need to 
         be made. (debugging purposes only) """
         for d in self._df['directions']:
-            d.spoof(spoof)
+            d.spoof(do_spoof)
 
     @property
     def df(self) -> pd.DataFrame:
@@ -222,7 +222,61 @@ class Map:
         """Return set of all unique transport carriers in this map's directions."""
         return set.union(*[d.carriers() for d in self.df['directions']])
 
-     
+    # Movements
+    
+    # @staticmethod
+    # def reduce_points(locas:Iterable[Location], min_dist=100) -> Iterable[Location]:
+    #     def tooclose_function(min_dist, maxabslat):
+            
+    #         deltalatlim = np.rad2deg(min_dist / 6356000)
+    #         deltalonlim = deltalatlim / np.cos(np.deg2rad(maxabslat)))
+    #         def f(c1, c2):
+    #             if abs(c1[0]-c2[0]) > deltalatlim:
+    #                 return False
+    #             if abs(c1[1]-c2[1]) > deltalonlim:
+    #                 return False
+    #             if (great_circle(c1, c2).m) > min_dist:
+    #                 return False
+    #             return True
+    #         return f
+
+    #     lats = [l.coords[0] for l in locas]
+    #     tooclose = tooclose_function(min_dist, np.max(np.abs(lats)))
+    #     matrix = np.zeros((len(locas), len(locas)), bool)
+    #     for i1, l1 in enumerate(locas):
+    #         for i2, l2 in enumerate(locas):
+    #             if i2 < i1: 
+    #                 matrix[i1, i2] = matrix[i2, i1]
+    #             elif i2 > i1:
+    #                 matrix[i1, i2] = tooclose(l1.coords, l2.coords)
+        
+    #     while True:
+    #         conflicts = sum(matrix>0)
+    #         worst = max(conflicts)
+    #         if worst == 0:
+    #             break
+    #         idx = np.where(conflicts == worst)[0][0]
+    #         #delete conflicting nodes.
+    #         df = df.drop(index=df.index[idx])
+    #         matrix = np.delete(matrix, idx, axis=0)
+    #         matrix = np.delete(matrix, idx, axis=1)        
+        
+    
+    # def directions(self, min_dist=40) -> List[Directions]:
+    #     data = []
+    #     s_dirs = self.df['directions']
+    #     s_ends = s_dirs.apply(lambda d: d.end)
+        
+    def steps(self, min_dist = 40) -> pd.Series:
+        s_dirs = self.df_success['directions']
+        df = pd.DataFrame({'step': [step for steps in s_dirs.apply(lambda d: d.steps())
+                                   for step in steps]})
+        df['coords'] = df.step.apply(lambda s: s.end.coords)
+        df.drop_duplicates('coords', inplace=True)
+        df['crow_dist'] = df.step.apply(lambda s: s.get_crow_distance(False))
+        mask = (df.crow_dist > min_dist)
+        return df.step[mask]
+        
 class CreateLocations:
     """Class that groups functions that return lists of locations."""    
 

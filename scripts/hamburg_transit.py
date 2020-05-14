@@ -7,25 +7,27 @@ Script to create an image of Hamburg, showing how to get where on by transit.
 """
 
 # %% Imports.
-
+import maptra
 from maptra import Map, CreateLocations, Location
+import importlib
 
 with open('apikey.txt') as f:
     apikey = f.read().strip()
     Map.set_gmaps_api_key(apikey)
 
 # Create.
-m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
-filtr = CreateLocations.geofilter()
-m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
+# m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
+# filtr = CreateLocations.geofilter()
+# m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
 
 # Save.
-m. to_pickle("pickle/hamburg_transit_5000_10000.pkl")
-# Load.
-# m = Map.from_pickle("pickle/hamburg_walking_1000_10000.pkl")
+# m. to_pickle("pickle/hamburg_transit_5000_10000.pkl")
+# Load
+m = Map.from_pickle("pickle/hamburg_transit_5000_10000.pkl")
 
 # %% Visualize.
 
+importlib.reload(maptra)
 from maptra import Visualization
 import geopandas as gpd
 viz = Visualization(m)# 'EPSG:25832') #) #, 'epsg:4326')#, 
@@ -60,10 +62,10 @@ viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=
 
 
 # Content: 
-viz.add_voronoi('duration', 0.1, alpha=0.9)
+viz.add_voronoi('duration', 0.05, alpha=0.9)
 viz.add_lines(alpha=1, minimum_width=0.7)
 viz.add_startpoint(alpha=1, color='blue', markersize=90)
-viz.add_endpoints(marker='o', color='green')
+viz.add_endpoints(marker='o', color='green', markersize=50)
 viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
 viz.showfig(0.1)
 

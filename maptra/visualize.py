@@ -206,7 +206,7 @@ class Visualization:
         #Save figure with correct dpi to get desired size in pixels.
         dpi = max(minwidth/self._fig.get_figwidth(), minheight/self._fig.get_figheight())
         self._fig.savefig(filepath, dpi=dpi)
-    
+     
     #Adding elements to the figure.
     
     def add_background(self, gdf:GeoDataFrame, *, 
@@ -245,8 +245,8 @@ class Visualization:
             df_path['linewidth'] *= np.log(df_path['count']) + 1
         df_path['color'] = df_path['carrier'].apply(lambda x: Styles.color(x))
         gdf_path = self.gdf_linestring_fromroutes(df_path['path'])
-        self._map.save() #Save, as previous action might have caused many api-calls.
-        
+        #self._map.save() #Save, as previous action might have caused many api-calls.
+        #TODO uncomment
         #Save.
         self._data['add_lines'] = [gdf_path] #TODO: save bounding box instead of entire data?  
 
@@ -283,7 +283,7 @@ class Visualization:
         ax.quiver(df_quiv['x'], df_quiv['y'], df_quiv['u'], df_quiv['v'], df_quiv['c'], angles='xy', 
                   scale_units='xy', scale=1, **{'cmap':cmap, 'width': width, **kwargs})
     
-    def add_voronoi(self, show:str='duration', detach=0,
+    def add_voronoi(self, show:str='duration', detach=0, x=0,
                     *, cmap:str=None, alpha:float=0.5, **kwargs) -> None:
         """Add colored cells to figure, coloring the area around a location based
         on the time it takes to get there (if show == 'duration', default) or the 
@@ -303,29 +303,30 @@ class Visualization:
             raise ValueError("Parameter 'show' must be 'duration' or 'speed'.")
                 
         #Get data.
-        s_dirs = self._map.df_success['directions']
+        # s _dirs = self._map.df_success['directions']
         
         # TODO:check if correct
-        s_dirs = pd.Series([step 
-                 for steparray in s_dirs.apply(lambda d: d.steps())
-                 for step in steparray])       
-        
-        mask = s_dirs.apply(lambda x: x.route[-1]).duplicated()
-        s_dirs = s_dirs[~mask]  #keep only one route per end point.
-        values = s_dirs.apply(show_func)
-        locas = s_dirs.apply(lambda x: Location(x.route[-1])) \
-                      .append(pd.Series([self._map.start])) #Add start point to keep region around it empty.
-        gdf_locs = self.gdf_point_fromlocations(locas)
-        self._map.save() #save, as previous action might have caused many api-calls.
+        s_mov = self._map.steps(x)
+      
+        mask = s_mov.apply(lambda x: x.route[-1]).duplicated()
+        s_mov = s_mov[~mask]  #keep only one route per end point.
+        locas = s_mov.apply(lambda x: x.end).values
+        locs = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
+        # self._map.save() #save, as previous action might have caused many api-calls.
         
         #Create (and clip) Voronoi cells.
-        vor = Voronoi([(point.x, point.y) for point in gdf_locs.geometry])
+        vor = Voronoi([(point.x, point.y) for point in locs.geometry])
         regions, vertices = voronoi_finite_polygons_2d(vor)
-        regions.pop() #Remove start point again, because we don't have a value for it.
-        gdf_voronoi = GeoDataFrame(geometry=[sg.Polygon(vertices[region])
-                                             for region in regions], crs=gdf_locs.crs)
+        #Remove region around point again, so it won't be drawn (because we don't have a value for it).
+        regions.pop() 
+        polys = [sg.Polygon(vertices[region]) for region in regions]
+        gdf_voronoi = gpd.GeoDataFrame({'mov': s_mov.values,
+                                        'location': locas, 
+                                        'geometry': polys}, crs=locs.crs)
+        
+        
         #Clip to visualization's clipping area.
-        gdf_voronoi = self._clip_and_reproject(gdf_voronoi)
+        # gdf_voronoi = self._clip_and_reproject(gdf_voronoi) #TODO: fix
         #Detach polygons from each other so they don't touch.
         if detach:
             dist = -(detach / 2) * np.sqrt(gdf_voronoi.geometry.area.median()) # typical size of cell.
@@ -333,9 +334,10 @@ class Visualization:
         #Clip to 'land'.
         land = self._clip_and_reproject(CreateLocations._geodf()) 
         gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
+        values = gdf_voronoi['mov'].apply(show_func)
         
         #Save.
-        self._data['add_voronoi'] = [gdf_locs, gdf_voronoi]
+        self._data['add_voronoi'] = [gdf_voronoi]
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()                
         legend = {'label': label, 'orientation': "horizontal", 'shrink':1, 'aspect':30, 'pad':0.02}
@@ -360,11 +362,13 @@ class Visualization:
         asfound==True, put marker at location that a route was found to. All 
         kwargs are passed to the plot (GeoSeries.plot) function."""
         #Get data.
-        s_dirs = self._map.df_success['directions']
+        s_mov = self._map.df_success['directions']
+        s_mov = self._map.steps(0) #TODO add parameter to select steps or directions
+                
         if asfound:
-            s = [Location(coords) for coords in s_dirs.apply(lambda x: x.route[-1]).unique()]
+            s = [Location(coords) for coords in s_mov.apply(lambda m: m.route[-1]).unique()]
         else:
-            s = s_dirs.apply(lambda x: x.end)
+            s = s_mov.apply(lambda x: x.end)
         gdf = self.gdf_point_fromlocations(s)
         
         #Save.

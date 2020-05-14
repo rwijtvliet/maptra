@@ -277,15 +277,18 @@ class Movement:
             fraction * self.api_result()['duration']['value']
     duration = property(get_duration)
             
-    @property
-    def crow_distance(self) -> float:
-        """Cumulative distance as-the-crow-flies at end of this movement, in meters."""
-        return self.start.ll.distanceTo(self.end.ll)
+    def __start(self, cumul:bool=True) -> Location:
+        return self.start if cumul else self.routestart
+    
+    def get_crow_distance(self, cumul:bool=True) -> float:
+        """Distance as-the-crow-flies, in meters."""
+        return self.__start(cumul).ll.distanceTo(self.end.ll)
+    crow_distance = property(get_crow_distance)
 
-    @property
-    def crow_bearing(self) -> float:
-        """Bearing as-the-crow-flies from start to end of this movement, in degrees."""
-        return self.start.ll.initialBearingTo(self.end.ll)
+    def get_crow_bearing(self, cumul:bool=True) -> float:
+        """Bearing as-the-crow-flies during movement, in degrees."""
+        return self.__start(cumul).ll.initialBearingTo(self.end.ll)
+    crow_bearing = property(get_crow_bearing)
     
     @property
     def crow_speed(self) -> float:
