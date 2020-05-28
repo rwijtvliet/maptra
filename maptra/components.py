@@ -67,7 +67,7 @@ class Location:
 
     #Instance methods.
     
-    def __init__(self, coords:Iterable[float]):
+    def __init__(self, coords:Iterable[float], ):
         self._coords = tuple(coords)
         self._api_result = None #Finding address belonging to coordinates: 
                                 #None: not yet tried, []: failed, [...]: success
@@ -252,12 +252,6 @@ class Movement:
     def end(self) -> Location:
         """Return end Location."""
         return self._end
-    
-    
-    # @property
-    # def distance(self) -> float:
-    #     """Cumulative distance over-the-road at end of this movement, in meters."""
-    #     return self._prior_distance + self.api_result()['distance']['value']
 
     def get_distance(self, cumul:bool=True, fraction=1) -> float:
         """Distance of this movement over-the-road, in meters. 'fraction' ==
@@ -265,10 +259,6 @@ class Movement:
         return (self._prior_distance if cumul else 0) + \
             fraction * self.api_result()['distance']['value']
     distance = property(get_distance)
-    # @property
-    # def duration(self) -> float:
-    #     """Cumulative duration at the end of this movement, in seconds."""
-    #     return self._prior_duration + self.api_result()['duration']['value']
      
     def get_duration(self, cumul:bool=True, fraction=1) -> float:
         """Duration of this movement over-the-road, in seconds. 'fraction' ==
@@ -355,11 +345,6 @@ class Hop(Movement):
         self._end = end
         self._distance = distance
         self._duration = duration
-    
-    # def get_distance(self, cumul:bool=True, fraction=1) -> float:
-    #     """Distance of this movement over-the-road, in meters. 'fraction' ==
-    #     0 (distance at start), 1 (at end), 0..1 (in between), linear interp."""
-    #     return fraction * self._distance
             
     @property
     def distance(self) -> float:
@@ -566,7 +551,7 @@ class Directions(Movement):
                               - ar['departure_time']['value']
             except (KeyError, TypeError):
                 pass
-            steps.append(Step(ar_step, dist_cum, dura_cum, self.start))
+            steps.append(Step(ar_step, dura_cum, dist_cum, self.start))
             dura_cum += ar_step['duration']['value']
             dist_cum += ar_step['distance']['value']
         #...then, make sure the entire route (across steps) is gapless...   

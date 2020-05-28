@@ -22,7 +22,8 @@ m.add_locations(CreateLocations.on_circular_grid(m.start, 1_000, [10_000], geofi
 # Save.
 # m.to_pickle("pickle/hamburg_walking_1000_10000.pkl")
 # Load.
-m = Map.from_pickle("pickle/hamburg_walking_1000_10000.pkl")
+m = Map.from_pickle("pickle/hamburg_walking_1000_10002.pkl")
+
 
 # %% Visualize.
 
@@ -53,16 +54,16 @@ base_path = 'data/hamburg/osmaxx/' + ('simplified/', 'detailed/')[is_detailed]
 # viz.add_background_fromfile(base_path + 'railway_l.shp', color='#330306', alpha=0.2)
 # viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=0.8)
 
-viz.add_background_fromfile(base_path + 'road_l.shp', color='white', alpha=1, linewidth=0.3)
-viz.add_background_fromfile(base_path + 'railway_l.shp', color='grey', alpha=0.7, linewidth=0.1)
-viz.add_background_fromfile(base_path + 'water_a.shp', color='black', alpha=0.22)
+# viz.add_background_fromfile(base_path + 'road_l.shp', color='white', alpha=1, linewidth=0.3)
+# viz.add_background_fromfile(base_path + 'railway_l.shp', color='grey', alpha=0.7, linewidth=0.1)
+viz.add_background_fromfile(base_path + 'water_a.shp', color='white', alpha=1, zorder=10)
 
 
 # Content: 
-viz.add_lines(alpha=0.2, minimum_width=0.7, color='yellow', var_width='not')
-viz.add_voronoi('duration', 0, alpha=0.9, cmap='brg_r')
+viz.add_lines(alpha=0.9, minimum_width=1, color='black', var_width='not', zorder=12)
+viz.add_voronoi('duration', True, alpha=0.9)#, edgecolor='black')
 # viz.add_startpoint(alpha=1, color='grey', markersize=90)
-viz.add_endpoints(marker='o', color='grey', alpha=0.3)
+viz.add_endpoints(True, marker='o', color='grey', alpha=0.3)
 # viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
 viz.showfig(0.03)
 

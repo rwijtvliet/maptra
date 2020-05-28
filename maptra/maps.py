@@ -11,15 +11,17 @@ on the map can be reached.
 
 """
 
-from .components import Location, Directions, Step, Hop
-from .forest import ForestStruct
-from .memoize import memoize_immutable, memoize_mutable
+from maptra.components import Location, Directions, Step, Hop
+from maptra.forest import ForestStruct
+from maptra.memoize import memoize_immutable, memoize_mutable
 
 from typing import Iterable, List, Tuple, Dict, Set, Any, Union, Callable
 import numpy as np
 import geopandas as gpd
+import overpy
 import googlemaps
 import pandas as pd
+import shapely.geometry as sg
 import pickle
 
 
@@ -222,45 +224,7 @@ class Map:
         """Return set of all unique transport carriers in this map's directions."""
         return set.union(*[d.carriers() for d in self.df['directions']])
 
-    # Movements
-    
-    # @staticmethod
-    # def reduce_points(locas:Iterable[Location], min_dist=100) -> Iterable[Location]:
-    #     def tooclose_function(min_dist, maxabslat):
-            
-    #         deltalatlim = np.rad2deg(min_dist / 6356000)
-    #         deltalonlim = deltalatlim / np.cos(np.deg2rad(maxabslat)))
-    #         def f(c1, c2):
-    #             if abs(c1[0]-c2[0]) > deltalatlim:
-    #                 return False
-    #             if abs(c1[1]-c2[1]) > deltalonlim:
-    #                 return False
-    #             if (great_circle(c1, c2).m) > min_dist:
-    #                 return False
-    #             return True
-    #         return f
-
-    #     lats = [l.coords[0] for l in locas]
-    #     tooclose = tooclose_function(min_dist, np.max(np.abs(lats)))
-    #     matrix = np.zeros((len(locas), len(locas)), bool)
-    #     for i1, l1 in enumerate(locas):
-    #         for i2, l2 in enumerate(locas):
-    #             if i2 < i1: 
-    #                 matrix[i1, i2] = matrix[i2, i1]
-    #             elif i2 > i1:
-    #                 matrix[i1, i2] = tooclose(l1.coords, l2.coords)
-        
-    #     while True:
-    #         conflicts = sum(matrix>0)
-    #         worst = max(conflicts)
-    #         if worst == 0:
-    #             break
-    #         idx = np.where(conflicts == worst)[0][0]
-    #         #delete conflicting nodes.
-    #         df = df.drop(index=df.index[idx])
-    #         matrix = np.delete(matrix, idx, axis=0)
-    #         matrix = np.delete(matrix, idx, axis=1)        
-        
+    # Movements        
     
     # def directions(self, min_dist=40) -> List[Directions]:
     #     data = []
@@ -277,11 +241,11 @@ class Map:
         mask = (df.crow_dist > min_dist)
         return df.step[mask]
         
+    
 class CreateLocations:
     """Class that groups functions that return lists of locations."""    
 
     #Filter.
-
     PATH_LANDONLY = "maptra/shp/ne_10m_land.shp"
     PATH_COUNTRIES = "maptra/shp/ne_10m_admin_0_countries_lakes.shp" 
     
@@ -368,12 +332,8 @@ class CreateLocations:
             One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
         geofilter: see class's geofilter method."""
         #Get number of points in each compass direction.
-        nums = (np.array(extent)/spacing).astype(int)
-        if len(nums) == 1: nums = np.append(nums, nums[0]) #NSWE -> NS, WE
-        if len(nums) == 2: nums = np.append(nums, nums[0]) #NS, WE -> N, WE, S
-        if len(nums) == 3: nums = np.insert(nums, 1, nums[1]) #N, WE, S -> N, W, E, S
-        if len(nums) != 4: raise ValueError("Function must be called with at least 1 and and most 4 values for argument 'extent'.")
-        num = {k: v for k, v in zip("NWES", nums)}
+        extent = expand_extent(extent)
+        num = {k: v for k, v in zip('NWES', (extent/spacing).astype(int))}
         #Create temporary dataframe to calculate locations.
         grid = pd.DataFrame(data=None, columns=range(-num["W"], num["E"]+1), 
                             index=range(num["N"], -num["S"]-1, -1))
@@ -423,15 +383,10 @@ class CreateLocations:
         extent: how far in each direction (N, S, W, E) the grid must extend (in m).
             One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
         geofilter: see class's geofilter method."""
-        #Get extent in each compass direction.
-        extent = np.array(extent)
-        if len(extent) == 1: extent = np.append(extent, extent[0]) #NSWE -> NS, WE
-        if len(extent) == 2: extent = np.append(extent, extent[0]) #NS, WE -> N, WE, S
-        if len(extent) == 3: extent = np.insert(extent, 1, extent[1]) #N, WE, S -> N, W, E, S
-        if len(extent) != 4: raise ValueError("Function must be called with at least 1 and and most 4 values for argument 'extent'.")
-        #Get extreme points, as well as the min and max compass directions, that the bearing from them to any locations must be in.
-        extremes = {k: (Location.from_latlon(center.ll.destination(e, b)), (b+90, b+270)) 
-                    for k, e, b in zip("NWES", extent, [0,270,90,180])}
+                #Get extent in each compass direction.
+        extent = expand_extent(extent)
+        #polygon the locations must lie within.
+        perimeter = perimeterpolygon(center, extent)
         #Create list with locations.
         locas = [center]
         n = 0 #circle
@@ -444,17 +399,7 @@ class CreateLocations:
             for bearing in np.linspace(0, 360, n*6, False): #points on the circle
                 loca = Location.from_latlon(center.ll.destination(radius, bearing))
                 loca.label = f'Location on circular grid, on circle {n}, bearing {bearing:.1f} deg.'
-                if check:
-                    for extreme, (bmin, bmax) in extremes.values():
-                        bear = extreme.ll.initialBearingTo(loca.ll)
-                        while bear < bmin:
-                            bear += 360
-                        if bear > bmax:
-                            break
-                    else:
-                        addedsome = True
-                        locas.append(loca)
-                else:
+                if not check or perimeter.contains(loca.point):
                     addedsome = True
                     locas.append(loca)
             if not addedsome:
@@ -476,14 +421,9 @@ class CreateLocations:
             One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
         geofilter: see class's geofilter method."""
         #Get extent in each compass direction.
-        extent = np.array(extent)
-        if len(extent) == 1: extent = np.append(extent, extent[0]) #NSWE -> NS, WE
-        if len(extent) == 2: extent = np.append(extent, extent[0]) #NS, WE -> N, WE, S
-        if len(extent) == 3: extent = np.insert(extent, 1, extent[1]) #N, WE, S -> N, W, E, S
-        if len(extent) != 4: raise ValueError("Function must be called with at least 1 and and most 4 values for argument 'extent'.")
-        #Get extreme points, as well as the min and max compass directions, that the bearing from them to any locations must be in.
-        extremes = {k: (Location.from_latlon(center.ll.destination(e, b)), (b+90, b+270)) 
-                    for k, e, b in zip("NWES", extent, [0,270,90,180])}
+        extent = expand_extent(extent)
+        #polygon the locations must lie within.
+        perimeter = perimeterpolygon(center, extent)
         #Create list with locations.
         locas = [center]
         n = 0 #hexagonal layer
@@ -500,17 +440,7 @@ class CreateLocations:
                 for bearing in bearing0 + np.linspace(0, 360, 6, False): #the 6 sides of the layer
                     loca = Location.from_latlon(center.ll.destination(radius, bearing))
                     loca.label = f'Location on hexagonal grid, on layer {n}, bearing {bearing:.1f} deg.'
-                    if check:
-                        for extreme, (bmin, bmax) in extremes.values():
-                            bear = extreme.ll.initialBearingTo(loca.ll)
-                            while bear < bmin:
-                                bear += 360
-                            if bear > bmax:
-                                break
-                        else:
-                            addedsome = True
-                            locas.append(loca)
-                    else:
+                    if not check or perimeter.contains(loca.point):
                         addedsome = True
                         locas.append(loca)
             if not addedsome:
@@ -523,4 +453,132 @@ class CreateLocations:
             print(f"Created many ({len(locas)}) locations!")
         return locas
 
-#%%
+
+class OpenstreetmapLocations:
+    """Get locations by query from openstreetmap with overpass."""
+    
+    api = overpy.Overpass()
+
+    @classmethod
+    def get_nodes(cls, center:Location, extent:Iterable[float], nodequery:str) -> Iterable[Location]:
+        perimeter = perimeterpoints(center, extent)
+        lats, lons = zip(*[p.coords for p in perimeter.values()])
+        bbox = (min(lats), min(lons), max(lats), max(lons))
+        result = cls.api.query(f'node[{nodequery}]{bbox};out;')
+        return result.nodes if result else []
+        
+    @classmethod
+    def busstops(cls, center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:
+        """Find bus stops in certain area.
+        center: location at center.
+        extent: how far in each direction (N, S, W, E) bus stops must extend (in m).
+            One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+        min_spacing: only include bus stops that are at least this far apart."""
+        nodes = cls.get_nodes(center, extent, '"highway"="bus_stop"')
+        locas = [Location((n.lat, n.lon)) for n in nodes]
+        for l, n in zip(locas, nodes):
+            l.transittype = 'bus_stop' #TODO: add as property to location class
+            l.tags = n.tags
+        if min_spacing > 0:
+            locas = reduce_locations(locas, min_spacing)
+        return locas
+    
+    @classmethod
+    def railstops(cls, center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:       
+        """Find railway stops in certain area; see .busstops method for more information."""
+        nodes = cls.get_nodes(center, extent, '"public_transport"="station"')
+        locas = [Location((n.lat, n.lon)) for n in nodes]
+        for l, n in zip(locas, nodes):
+            l.transittype = 'station' #TODO: add as property to location class
+            l.tags = n.tags
+        if min_spacing > 0:
+            locas = reduce_locations(locas, min_spacing)
+        return locas 
+                   
+def expand_extent(extent: Iterable[float]) -> np.array:
+    if not isinstance(extent, Iterable):
+        extent = [extent]
+    extent = np.array(extent)
+    if len(extent) == 1: extent = np.append(extent, extent[0]) #NSWE -> NS, WE
+    if len(extent) == 2: extent = np.append(extent, extent[0]) #NS, WE -> N, WE, S
+    if len(extent) == 3: extent = np.insert(extent, 1, extent[1]) #N, WE, S -> N, W, E, S
+    if len(extent) != 4: raise ValueError("Function must be called with at least 1 and and most 4 values for argument 'extent'.")
+    return extent
+
+def perimeterpoints(center:Location, extent:Iterable[float]) -> Dict[str, Location]:
+    """
+    Find 4 cornerpoints and 4 midpoints between them, for a rectangular area.
+    Three points (e.g. SW, S, SE) always lie on a great circle.
+    center: reference location of area.
+    extent: how far in each direction (N, S, W, E) the area extends (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    """
+    extent = expand_extent(extent)
+        
+    nwes = {k: (point := Location.from_latlon(center.ll.destination(e, b)), 
+                point.ll.initialBearingTo(center.ll))
+            for k, e, b in zip("NWES", extent, [0, 270, 90, 180])}      
+    
+    corners = {}
+    for key, swap in (('NE', False), ('SE', True), ('SW', False), ('NW', True)):
+        a, b = key[::-1] if swap else key 
+        (pointA, bearA), (pointB, bearB) = nwes[a], nwes[b]
+        corners[key] = Location.from_latlon(pointA.ll.intersection(bearA-90, pointB.ll, bearB+90))
+        
+    return {**corners, **{k:v[0] for k,v in nwes.items()}}
+
+def perimeterpolygon(center:Location, extent:Iterable[float]) -> sg.Polygon:
+    """
+    Polygon covering the area around the center. 
+    center: reference location of area.
+    extent: how far in each direction (N, S, W, E) the area extends (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    """
+    # Because rectangle on sphere is not rectangle in lat-lon space, more
+    # intermediate points might be needed for large areas or those near the poles.
+    locas = perimeterpoints(center, extent)
+    keys = ('NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', 'N', 'NW')
+    linestring = [locas[k].point for k in keys]
+    return sg.Polygon(linestring)
+
+def reduce_locations(locas:Iterable[Location], min_dist:float=100) -> Iterable[Location]:
+    """
+    Return a subset of location-collection 'locas', in which all locations
+    are further apart than 'min_dist'.
+    """
+    # Define function to determine if too close.
+    def tooclose_function(maxabslat) -> Callable:
+        deltalatlim = np.rad2deg(min_dist / 6356000)
+        deltalonlim = deltalatlim / np.cos(np.deg2rad(maxabslat))
+        def f(c1: Iterable[float], c2: Iterable[float]) -> bool:
+            if abs(c1[0]-c2[0]) > deltalatlim:
+                return False
+            if abs(c1[1]-c2[1]) > deltalonlim:
+                return False
+            if (great_circle(c1, c2).m) > min_dist:
+                return False
+            return True
+        return f
+    # Prepare matrix to hold conflict pairs.
+    locas = np.array(locas)
+    lats = [l.coords[0] for l in locas]
+    tooclose = tooclose_function(np.max(np.abs(lats)))
+    matrix = np.zeros((len(locas), len(locas)), bool)
+    for i1, l1 in enumerate(locas):
+        for i2, l2 in enumerate(locas):
+            if i2 < i1: 
+                matrix[i1, i2] = matrix[i2, i1]
+            elif i2 > i1:
+                matrix[i1, i2] = tooclose(l1.coords, l2.coords)
+    # Remove locations until no conflicts remain.
+    while True:
+        conflicts = sum(matrix>0)
+        worst = max(conflicts)
+        if worst == 0:
+            break
+        idx = np.where(conflicts == worst)[0][0]
+        #delete conflicting locations.
+        locas = np.delete(locas, idx)
+        matrix = np.delete(matrix, idx, axis=0)
+        matrix = np.delete(matrix, idx, axis=1)        
+    return locas

@@ -33,8 +33,8 @@ Sources of ESRI Shappe files for the background map:
     #Map showing if bicycle, car, or public transport is fastest (and by how much)
 
 
-from .components import Location, Directions
-from .maps import Map, CreateLocations
+from maptra.components import Location, Directions
+from maptra.maps import Map, CreateLocations
 import os
 import numpy as np
 import pandas as pd
@@ -45,7 +45,7 @@ import shapely.geometry as sg
 import pyproj
 import warnings
 from scipy.spatial import Voronoi
-from .voronoi_finite_polygons_2d import voronoi_finite_polygons_2d
+from maptra.voronoi_finite_polygons_2d import voronoi_finite_polygons_2d
 from typing import Dict, List, Union, Iterable, Tuple, Optional, Callable
 
 class Styles:
@@ -283,66 +283,72 @@ class Visualization:
         ax.quiver(df_quiv['x'], df_quiv['y'], df_quiv['u'], df_quiv['v'], df_quiv['c'], angles='xy', 
                   scale_units='xy', scale=1, **{'cmap':cmap, 'width': width, **kwargs})
     
-    def add_voronoi(self, show:str='duration', detach=0, x=0,
+    def add_voronoi(self, show:str='duration', inter:bool=True, detach=0,
                     *, cmap:str=None, alpha:float=0.5, **kwargs) -> None:
-        """Add colored cells to figure, coloring the area around a location based
-        on the time it takes to get there (if show == 'duration', default) or the 
-        speed with which one gets there (if show == 'speed'). All kwargs 
-        are passed to the plot (geopandas.plot_polygon_collection) function."""
+        """Add colored (voronoi) cells to figure, coloring the area around a 
+        location. If inter==True (default), also color the area around inter-
+        mediate points returned by google. Pick color based on time it takes 
+        to get there (if show == 'duration', default) or speed with which one 
+        gets there (if show == 'speed'). If parameter 'detach' > 0 (i.e. 0.05), 
+        a gutter is drawn between cells of 5% of their typical 1D-size. All 
+        kwargs are passed to plot (geopandas.plot) function."""
         if show.lower() == 'duration':
-            show_func = lambda d: d.duration
-            label = 'Time needed to get to point [s]'
+            show_func = lambda d: d.duration / 3600
+            label = 'Time needed to get to point [h]'
             if cmap is None:
                 cmap = 'RdYlGn_r'
         elif show.lower() == 'speed':
-            show_func = lambda d: d.crow_speed
-            label = 'Velocity to get to point, measured by air-distance [m/s]'
+            show_func = lambda d: d.crow_speed * 3.6
+            label = 'Velocity to get to point, measured by air-distance [km/h]'
             if cmap is None:
                 cmap = 'RdYlGn'
         else:
             raise ValueError("Parameter 'show' must be 'duration' or 'speed'.")
                 
         #Get data.
-        # s _dirs = self._map.df_success['directions']
-        
-        # TODO:check if correct
-        s_mov = self._map.steps(x)
-      
+        if inter:
+            s_mov = self._map.steps(0)
+        else:
+            s_mov = self._map.df_success['directions']
+            
         mask = s_mov.apply(lambda x: x.route[-1]).duplicated()
         s_mov = s_mov[~mask]  #keep only one route per end point.
         locas = s_mov.apply(lambda x: x.end).values
-        locs = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
-        # self._map.save() #save, as previous action might have caused many api-calls.
+        points = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
+        self._map.save() #save, as previous action might have caused many api-calls.
         
         #Create (and clip) Voronoi cells.
-        vor = Voronoi([(point.x, point.y) for point in locs.geometry])
+        vor = Voronoi([(point.x, point.y) for point in points.geometry])
         regions, vertices = voronoi_finite_polygons_2d(vor)
-        #Remove region around point again, so it won't be drawn (because we don't have a value for it).
-        regions.pop() 
+        #Remove region around start again, so it won't be drawn (because we don't have a value for it).
+        regions, points = regions[:-1], points[:-1]
+        # points.drop(points.index[-1], inplace=True)     
         polys = [sg.Polygon(vertices[region]) for region in regions]
-        gdf_voronoi = gpd.GeoDataFrame({'mov': s_mov.values,
-                                        'location': locas, 
-                                        'geometry': polys}, crs=locs.crs)
+        gdf_voronoi = GeoDataFrame({'mov': s_mov.values, 'location': locas, 
+                                    'point': points.geometry, 'geometry': polys},
+                                   crs=points.crs)
         
-        
-        #Clip to visualization's clipping area.
-        # gdf_voronoi = self._clip_and_reproject(gdf_voronoi) #TODO: fix
         #Detach polygons from each other so they don't touch.
         if detach:
             dist = -(detach / 2) * np.sqrt(gdf_voronoi.geometry.area.median()) # typical size of cell.
             gdf_voronoi.geometry = gdf_voronoi.geometry.buffer(dist)
-        #Clip to 'land'.
+            mask = gdf_voronoi.geometry.apply(lambda p: p.area) > 0
+            gdf_voronoi = gdf_voronoi[mask]
+        #Clip to 'land' and visualization's clipping area.
         land = self._clip_and_reproject(CreateLocations._geodf()) 
         gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
+        # remove = self._clip_and_reproject(gpd.read_file(remove))
+        # gdf_voronoi = gpd.overlay(gdf_voronoi, remove, how='difference') #both in self._crs
         values = gdf_voronoi['mov'].apply(show_func)
+        vmin, vmax = values.quantile([0.01, 0.99]) #domain of color bar.
         
         #Save.
         self._data['add_voronoi'] = [gdf_voronoi]
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()                
         legend = {'label': label, 'orientation': "horizontal", 'shrink':1, 'aspect':30, 'pad':0.02}
-        gdf_voronoi.plot(ax=ax, column=values, legend=True, legend_kwds=legend,
-                        **{'cmap':cmap, 'alpha':alpha, **kwargs})
+        gdf_voronoi.plot(ax=ax, column=values, vmin=vmin, vmax=vmax, legend=True, 
+                         legend_kwds=legend, **{'cmap':cmap, 'alpha':alpha, **kwargs})
         
     def add_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
                        markersize:float=200, **kwargs) -> None:
@@ -355,15 +361,19 @@ class Visualization:
         kwargs = {'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs}
         gdf.plot(ax=ax, **kwargs)
     
-    def add_endpoints(self, asfound:bool=True,
+    def add_endpoints(self, asfound:bool=True, inter:bool=False,
                       *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
         """Add end locations to figure. Locations that no route has been found to
         are excluded. If asfound==False, put marker at specified location. If 
-        asfound==True, put marker at location that a route was found to. All 
-        kwargs are passed to the plot (GeoSeries.plot) function."""
+        asfound==True, put marker at location that a route was found to. (always 
+        True if inter==True). If inter==True, also plot intermediate points returned 
+        by google api (default False). All kwargs are passed to the plot 
+        (GeoSeries.plot) function."""
         #Get data.
-        s_mov = self._map.df_success['directions']
-        s_mov = self._map.steps(0) #TODO add parameter to select steps or directions
+        if inter:
+            s_mov = self._map.steps(0)
+        else:
+            s_mov = self._map.df_success['directions']
                 
         if asfound:
             s = [Location(coords) for coords in s_mov.apply(lambda m: m.route[-1]).unique()]
@@ -376,5 +386,3 @@ class Visualization:
         #Create image and add elements.
         fig, ax = self.fig_and_ax()
         gdf.plot(ax=ax, **{'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
-
-#%%
