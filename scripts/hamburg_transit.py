@@ -9,24 +9,23 @@ Script to create an image of Hamburg, showing how to get where on by transit.
 # %% Imports.
 import maptra
 from maptra import Map, CreateLocations, Location
-import importlib
 
 with open('apikey.txt') as f:
     apikey = f.read().strip()
     Map.set_gmaps_api_key(apikey)
 
 # Create.
-# m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
-# filtr = CreateLocations.geofilter()
-# m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
+m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
+filtr = CreateLocations.geofilter()
+m.add_locations(CreateLocations.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
 
 # Save.
 # m. to_pickle("pickle/hamburg_transit_5000_10000.pkl")
 # Load
-m = Map.from_pickle("pickle/hamburg_transit_5000_10000.pkl")
+# m = Map.from_pickle("pickle/hamburg_transit_5000_10000.pkl")
 
 # %% Visualize.
-
+import importlib
 importlib.reload(maptra)
 from maptra import Visualization
 import geopandas as gpd
