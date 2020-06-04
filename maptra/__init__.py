@@ -1,4 +1,5 @@
-from .locations import Location, CreateLocations
+
+from .locations import Location
 from .movements import Directions, Step
 from .forest import ForestStruct
 from .maps import Map

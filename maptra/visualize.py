@@ -33,7 +33,7 @@ Sources of ESRI Shappe files for the background map:
     #Map showing if bicycle, car, or public transport is fastest (and by how much)
 
 
-from maptra.locations import Location, CreateLocations
+from maptra.locations import Location
 from maptra.movements import Directions
 from maptra.maps import Map
 import os

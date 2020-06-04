@@ -13,8 +13,7 @@ import numpy as np
 import geopandas as gpd
 import pygeodesy.sphericalTrigonometry as st
 import shapely.geometry as sg
-from geopy.distance import great_circle    
-from googlemaps.convert import decode_polyline, encode_polyline
+from geopy.distance import great_circle
 
 
 class Location:
@@ -144,258 +143,55 @@ class Location:
         return self.__class__.__name__ + ' object at ' + hex(id(self))
 
 
-class CreateLocations:
-    """Class that groups functions that return lists of locations."""    
+# %% Filter.
 
-    #Filter.
-    PATH_LANDONLY = "maptra/shp/ne_10m_land.shp"
-    PATH_COUNTRIES = "maptra/shp/ne_10m_admin_0_countries_lakes.shp" 
-    
-    @classmethod
-    @memoize_immutable
-    def _geodf(cls, *sovs:str) -> gpd.GeoDataFrame:
-        """Return geodataframe with polygons of the world's land mass (if called
-        without arguments) or the countries whose name contains one of the arguments."""
-        if len(sovs) == 0:
-            gdf = gpd.read_file(cls.PATH_LANDONLY)
-            print("GeoDataFrame: any locations on land.")
-        else:
-            filtr = False
-            gdf = gpd.read_file(cls.PATH_COUNTRIES)
-            for sov in sovs:
-                ftr = gdf['SOVEREIGNT'].str.contains(sov, case=False)
-                if not ftr.any():
-                    raise ValueError(f"No sovereignty with a name containing '{sov}' was found.")
-                else:
-                    filtr |= ftr
-                    print("GeoDataFrame: include sovereignties: " + ', '.join(gdf[ftr]['SOVEREIGNT'].unique()))                  
-            gdf = gdf[filtr]
-        return gdf.to_crs(CRS_LONLAT)
-        
-    @classmethod
-    def geofilter(cls, *sovs:str) -> Callable[[Iterable[Location]], List[Location]]:
-        """Return a geofilter function. If no arguments are passed: filters for 
-        locations on land (i.e., exclude those at sea). Otherwise: filters for 
-        locations within countries/sovereignties whose names contain any of the 
-        provided strings. The geofilter function accepts and returns a collection 
-        of Location objects."""
-        land = cls._geodf(*sovs)
-        
-        def filterlocations(locas:Iterable[Location]) -> List[Location]:
-            l = gpd.GeoDataFrame({'location': locas, 'geometry':[l.point for l in locas]}, crs=CRS_LONLAT)
-            l_in_land = gpd.sjoin(l, land, op='within')
-            return l_in_land['location'].tolist()
+CRS_LONLAT = 'epsg:4326'
+PATH_LANDONLY = "maptra/shp/ne_10m_land.shp"
+PATH_COUNTRIES = "maptra/shp/ne_10m_admin_0_countries_lakes.shp" 
 
-        return filterlocations
-    
-    @classmethod
-    def clip_to_geofilter(cls, locas:Iterable[Location], *sovs:str) -> List[Location]:
-        """Filter list of locations. If no sovs are supplied, there is no filter.
-        If it is '' (empty string, default): filters for locations on land. 
-        Otherwise: filters for locations within countries/sovereignties whose 
-        names contains any of the provided strings."""
-        filtr = cls.geofilter(*sovs)
-        return filtr(locas)
-
-    #Static methods.
-    
-    @staticmethod
-    def from_address_dict(addresses:Dict, *, 
-                          geofilter:Callable[[Location], bool]=None) -> List[Location]:
-        """Create list of Locations from a {label: address}-dictionary, with the
-        address a string to be geocoded. geofilter: see class's geofilter method."""
-        locas = []
-        for label, address in addresses.items():
-            loca = Location.from_address(address)
-            loca.label = label
-            locas.append(loca)
-        if geofilter is not None:
-            locas = [loca for loca in locas if geofilter(loca)]
-        return locas
-
-    @staticmethod
-    def from_address_list(addresses:List, *, 
-                          geofilter:Callable[[Location], bool]=None) -> List[Location]:
-        """Create list of Locations from a list of addresses, with each address
-        a string to be geocoded. geofilter: see class's geofilter method."""
-        locas = [Location.from_address(address) for address in addresses]
-        if geofilter is not None:
-            locas = [loca for loca in locas if geofilter(loca)]
-        return locas
-    
-    @staticmethod
-    def on_rectangular_grid(center:Location, spacing:float, extent:Iterable[float], *,
-                            geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
-        """Create a rectangular grid of points around a central location. 
-        center: location at center of grid.
-        spacing: north-south and east-west spacing of points (in m), at least for locations
-        near center and for those on main north-south and east-west lines from center.
-        extent: how far in each direction (N, S, W, E) the grid must extend (in m).
-            One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
-        geofilter: see class's geofilter method."""
-        #Get number of points in each compass direction.
-        extent = expand_extent(extent)
-        num = {k: v for k, v in zip('NWES', (extent/spacing).astype(int))}
-        #Create temporary dataframe to calculate locations.
-        grid = pd.DataFrame(data=None, columns=range(-num["W"], num["E"]+1), 
-                            index=range(num["N"], -num["S"]-1, -1))
-        #Find points on main (north/south and east/west) axes.
-        for s_east in grid.columns:
-            if s_east != 0: 
-                grid.loc[0, s_east] = Location.from_latlon(center.ll.destination(s_east*spacing, 90))
+def _geodf(*sovs:str) -> gpd.GeoDataFrame:
+    """Return geodataframe with polygons of the world's land mass (if called
+    without arguments) or the countries whose name contains one of the arguments."""
+    if len(sovs) == 0:
+        gdf = gpd.read_file(PATH_LANDONLY)
+        print("GeoDataFrame: any locations on land.")
+    else:
+        filtr = False
+        gdf = gpd.read_file(PATH_COUNTRIES)
+        for sov in sovs:
+            ftr = gdf['SOVEREIGNT'].str.contains(sov, case=False)
+            if not ftr.any():
+                raise ValueError(f"No sovereignty with a name containing '{sov}' was found.")
             else:
-                grid.loc[0, 0] = center
-        for s_nrth in grid.index:
-            if s_nrth != 0:
-                grid.loc[s_nrth, 0] = Location.from_latlon(center.ll.destination(s_nrth*spacing, 0))
-        #Find points away from main axes. Which are crossing of a point A on the east/west, and a point B on the north/south axis.
-        for s_east in grid.columns:
-            if s_east == 0: continue #point is on main axis.
-            pointA = grid.loc[0, s_east].ll
-            bearAtoStart = pointA.initialBearingTo(center.ll) #looking towards start point: 'eastish' (westish) for points west (east) of start point (on main east/west axis).
-            
-            for s_nrth in grid.index:
-                if s_nrth == 0: continue #point is on main axis.
-                pointB = grid.loc[s_nrth, 0].ll
-                bearBtoStart = 0 if s_nrth > 0 else 180 #looking toward start point: south (north) for points north (south) of start point (on main north/south axis).
-                
-                bearA = bearAtoStart + 90 * np.sign(s_nrth) * np.sign(s_east) #turn 90 degrees to point into correct quadrant.
-                bearB = bearBtoStart - 90 * np.sign(s_nrth) * np.sign(s_east) #turn 90 degrees to point into correct quadrant.
-                # Find crossing between point A and B.
-                grid.loc[s_nrth, s_east] = Location.from_latlon(pointA.intersection(bearA, pointB, bearB))
-        #Add label.
-        for s_east in grid.columns:
-            for s_nrth in grid.index:
-                grid.loc[s_nrth, s_east].label = f'Location on rectangular grid spot with index ({s_nrth}, {s_east}).'
-        #Filter if wanted.
-        locas = grid.values.flatten().tolist()
-        if geofilter is not None:
-            locas = geofilter(locas)
-        #Return list.
-        if len(locas) > 300:
-            print(f"Created many ({len(locas)}) locations!")
-        return locas
-
-    @staticmethod
-    def on_circular_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
-        """Create a grid of points in concentric circles, around a central location. 
-        center: location at center of grid.
-        spacing: value (in m) with which radius increases with each consecutive 
-            circle. Also approximate spacing between location and 6 nearest neighbors.
-        extent: how far in each direction (N, S, W, E) the grid must extend (in m).
-            One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
-        geofilter: see class's geofilter method."""
-                #Get extent in each compass direction.
-        extent = expand_extent(extent)
-        #polygon the locations must lie within.
-        perimeter = perimeterpolygon(center, extent)
-        #Create list with locations.
-        locas = [center]
-        n = 0 #circle
-        while True:
-            n += 1
-            radius = n * spacing
-            check = (radius > min(extent))
-                
-            addedsome = False
-            for bearing in np.linspace(0, 360, n*6, False): #points on the circle
-                loca = Location.from_latlon(center.ll.destination(radius, bearing))
-                loca.label = f'Location on circular grid, on circle {n}, bearing {bearing:.1f} deg.'
-                if not check or perimeter.contains(loca.point):
-                    addedsome = True
-                    locas.append(loca)
-            if not addedsome:
-                break
-        #Filter if wanted.
-        if geofilter is not None:
-            locas = geofilter(locas)
-        #Return list.
-        if len(locas) > 300:
-            print(f"Created many ({len(locas)}) locations!")
-        return locas
+                filtr |= ftr
+                print("GeoDataFrame: include sovereignties: " + ', '.join(gdf[ftr]['SOVEREIGNT'].unique()))                  
+        gdf = gdf[filtr]
+    return gdf.to_crs(CRS_LONLAT)
     
-    @staticmethod
-    def on_hexagonal_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
-        """Create a grid of points on hexagonal grid, around a central location. 
-        center: location at center of grid.
-        spacing: approximate distance (in m) between location and 6 nearest neighbors.
-        extent: how far in each direction (N, S, W, E) the grid must extend (in m).
-            One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
-        geofilter: see class's geofilter method."""
-        #Get extent in each compass direction.
-        extent = expand_extent(extent)
-        #polygon the locations must lie within.
-        perimeter = perimeterpolygon(center, extent)
-        #Create list with locations.
-        locas = [center]
-        n = 0 #hexagonal layer
-        while True:
-            n += 1
-                
-            addedsome = False
-            for m in range(n): #points along one of the 6 sides of the layer
-                steps = np.sqrt(n**2 + m**2 - n*m)
-                radius = steps * spacing
-                check = (radius > min(extent))
-                bearing0 = np.rad2deg(np.arcsin(0.5*np.sqrt(3)*m/steps))
-                
-                for bearing in bearing0 + np.linspace(0, 360, 6, False): #the 6 sides of the layer
-                    loca = Location.from_latlon(center.ll.destination(radius, bearing))
-                    loca.label = f'Location on hexagonal grid, on layer {n}, bearing {bearing:.1f} deg.'
-                    if not check or perimeter.contains(loca.point):
-                        addedsome = True
-                        locas.append(loca)
-            if not addedsome:
-                break
-        #Filter if wanted.
-        if geofilter is not None:
-            locas = geofilter(locas)
-        #Return list.
-        if len(locas) > 300:
-            print(f"Created many ({len(locas)}) locations!")
-        return locas
-
-
-class OpenstreetmapLocations:
-    """Get locations by query from openstreetmap with overpass."""
+def geofilter(*sovs:str) -> Callable[[Iterable[Location]], List[Location]]:
+    """Return a geofilter function. If no arguments are passed: filters for 
+    locations on land (i.e., exclude those at sea). Otherwise: filters for 
+    locations within countries/sovereignties whose names contain any of the 
+    provided strings. The geofilter function accepts and returns a collection 
+    of Location objects."""
+    land = _geodf(*sovs)
     
-    api = overpy.Overpass()
+    def filterlocations(locas:Iterable[Location]) -> List[Location]:
+        l = gpd.GeoDataFrame({'location': locas, 'geometry':[l.point for l in locas]}, crs=CRS_LONLAT)
+        l_in_land = gpd.sjoin(l, land, op='within')
+        return l_in_land['location'].tolist()
 
-    @classmethod
-    def get_nodes(cls, center:Location, extent:Iterable[float], nodequery:str) -> Iterable[Location]:
-        perimeter = perimeterpoints(center, extent)
-        lats, lons = zip(*[p.coords for p in perimeter.values()])
-        bbox = (min(lats), min(lons), max(lats), max(lons))
-        result = cls.api.query(f'node[{nodequery}]{bbox};out;')
-        return result.nodes if result else []
-        
-    @classmethod
-    def busstops(cls, center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:
-        """Find bus stops in certain area.
-        center: location at center.
-        extent: how far in each direction (N, S, W, E) bus stops must extend (in m).
-            One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
-        min_spacing: only include bus stops that are at least this far apart."""
-        nodes = cls.get_nodes(center, extent, '"highway"="bus_stop"')
-        locas = [Location((n.lat, n.lon)) for n in nodes]
-        for l, n in zip(locas, nodes):
-            l.transittype = 'bus_stop' #TODO: add as property to location class
-            l.tags = n.tags
-        if min_spacing > 0:
-            locas = reduce_locations(locas, min_spacing)
-        return locas
-    
-    @classmethod
-    def railstops(cls, center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:       
-        """Find railway stops in certain area; see .busstops method for more information."""
-        nodes = cls.get_nodes(center, extent, '"public_transport"="station"')
-        locas = [Location((n.lat, n.lon)) for n in nodes]
-        for l, n in zip(locas, nodes):
-            l.transittype = 'station' #TODO: add as property to location class
-            l.tags = n.tags
-        if min_spacing > 0:
-            locas = reduce_locations(locas, min_spacing)
-        return locas 
+    return filterlocations
+
+def clip_to_geofilter(locas:Iterable[Location], *sovs:str) -> List[Location]:
+    """Filter list of locations. If no sovs are supplied, there is no filter.
+    If it is '' (empty string, default): filters for locations on land. 
+    Otherwise: filters for locations within countries/sovereignties whose 
+    names contains any of the provided strings."""
+    filtr = geofilter(*sovs)
+    return filtr(locas)
+
+# %% Helper functions to define the perimeter.
                    
 def expand_extent(extent: Iterable[float]) -> np.array:
     if not isinstance(extent, Iterable):
@@ -443,7 +239,9 @@ def perimeterpolygon(center:Location, extent:Iterable[float]) -> sg.Polygon:
     linestring = [locas[k].point for k in keys]
     return sg.Polygon(linestring)
 
-def reduce_locations(locas:Iterable[Location], min_dist:float=100) -> Iterable[Location]:
+# Helper function to thin out.
+
+def thin_out(locas:Iterable[Location], min_dist:float=100) -> Iterable[Location]:
     """
     Return a subset of location-collection 'locas', in which all locations
     are further apart than 'min_dist'.
@@ -484,3 +282,193 @@ def reduce_locations(locas:Iterable[Location], min_dist:float=100) -> Iterable[L
         matrix = np.delete(matrix, idx, axis=0)
         matrix = np.delete(matrix, idx, axis=1)        
     return locas
+
+# %% Create locations.
+
+def from_address_dict(addresses:Dict, *, 
+                      geofilter:Callable[[Location], bool]=None) -> List[Location]:
+    """Create list of Locations from a {label: address}-dictionary, with the
+    address a string to be geocoded. geofilter: see class's geofilter method."""
+    locas = []
+    for label, address in addresses.items():
+        loca = Location.from_address(address)
+        loca.label = label
+        locas.append(loca)
+    if geofilter is not None:
+        locas = [loca for loca in locas if geofilter(loca)]
+    return locas
+
+def from_address_list(addresses:List, *, 
+                      geofilter:Callable[[Location], bool]=None) -> List[Location]:
+    """Create list of Locations from a list of addresses, with each address
+    a string to be geocoded. geofilter: see class's geofilter method."""
+    locas = [Location.from_address(address) for address in addresses]
+    if geofilter is not None:
+        locas = [loca for loca in locas if geofilter(loca)]
+    return locas
+
+def on_rectangular_grid(center:Location, spacing:float, extent:Iterable[float], *,
+                        geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
+    """Create a rectangular grid of points around a central location. 
+    center: location at center of grid.
+    spacing: north-south and east-west spacing of points (in m), at least for locations
+    near center and for those on main north-south and east-west lines from center.
+    extent: how far in each direction (N, S, W, E) the grid must extend (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    geofilter: see class's geofilter method."""
+    #Get number of points in each compass direction.
+    extent = expand_extent(extent)
+    num = {k: v for k, v in zip('NWES', (extent/spacing).astype(int))}
+    #Create temporary dataframe to calculate locations.
+    grid = pd.DataFrame(data=None, columns=range(-num["W"], num["E"]+1), 
+                        index=range(num["N"], -num["S"]-1, -1))
+    #Find points on main (north/south and east/west) axes.
+    for s_east in grid.columns:
+        if s_east != 0: 
+            grid.loc[0, s_east] = Location.from_latlon(center.ll.destination(s_east*spacing, 90))
+        else:
+            grid.loc[0, 0] = center
+    for s_nrth in grid.index:
+        if s_nrth != 0:
+            grid.loc[s_nrth, 0] = Location.from_latlon(center.ll.destination(s_nrth*spacing, 0))
+    #Find points away from main axes. Which are crossing of a point A on the east/west, and a point B on the north/south axis.
+    for s_east in grid.columns:
+        if s_east == 0: continue #point is on main axis.
+        pointA = grid.loc[0, s_east].ll
+        bearAtoStart = pointA.initialBearingTo(center.ll) #looking towards start point: 'eastish' (westish) for points west (east) of start point (on main east/west axis).
+        
+        for s_nrth in grid.index:
+            if s_nrth == 0: continue #point is on main axis.
+            pointB = grid.loc[s_nrth, 0].ll
+            bearBtoStart = 0 if s_nrth > 0 else 180 #looking toward start point: south (north) for points north (south) of start point (on main north/south axis).
+            
+            bearA = bearAtoStart + 90 * np.sign(s_nrth) * np.sign(s_east) #turn 90 degrees to point into correct quadrant.
+            bearB = bearBtoStart - 90 * np.sign(s_nrth) * np.sign(s_east) #turn 90 degrees to point into correct quadrant.
+            # Find crossing between point A and B.
+            grid.loc[s_nrth, s_east] = Location.from_latlon(pointA.intersection(bearA, pointB, bearB))
+    #Add label.
+    for s_east in grid.columns:
+        for s_nrth in grid.index:
+            grid.loc[s_nrth, s_east].label = f'Location on rectangular grid spot with index ({s_nrth}, {s_east}).'
+    #Filter if wanted.
+    locas = grid.values.flatten().tolist()
+    if geofilter is not None:
+        locas = geofilter(locas)
+    #Return list.
+    if len(locas) > 300:
+        print(f"Created many ({len(locas)}) locations!")
+    return locas
+
+def on_circular_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
+    """Create a grid of points in concentric circles, around a central location. 
+    center: location at center of grid.
+    spacing: value (in m) with which radius increases with each consecutive 
+        circle. Also approximate spacing between location and 6 nearest neighbors.
+    extent: how far in each direction (N, S, W, E) the grid must extend (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    geofilter: see class's geofilter method."""
+    #Get extent in each compass direction.
+    extent = expand_extent(extent)
+    #polygon the locations must lie within.
+    perimeter = perimeterpolygon(center, extent)
+    #Create list with locations.
+    locas = [center]
+    n = 0 #circle
+    while True:
+        n += 1
+        radius = n * spacing
+        check = (radius > min(extent))
+            
+        addedsome = False
+        for bearing in np.linspace(0, 360, n*6, False): #points on the circle
+            loca = Location.from_latlon(center.ll.destination(radius, bearing))
+            loca.label = f'Location on circular grid, on circle {n}, bearing {bearing:.1f} deg.'
+            if not check or perimeter.contains(loca.point):
+                addedsome = True
+                locas.append(loca)
+        if not addedsome:
+            break
+    #Filter if wanted.
+    if geofilter is not None:
+        locas = geofilter(locas)
+    #Return list.
+    if len(locas) > 300:
+        print(f"Created many ({len(locas)}) locations!")
+    return locas
+
+def on_hexagonal_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
+    """Create a grid of points on hexagonal grid, around a central location. 
+    center: location at center of grid.
+    spacing: approximate distance (in m) between location and 6 nearest neighbors.
+    extent: how far in each direction (N, S, W, E) the grid must extend (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    geofilter: see class's geofilter method."""
+    #Get extent in each compass direction.
+    extent = expand_extent(extent)
+    #polygon the locations must lie within.
+    perimeter = perimeterpolygon(center, extent)
+    #Create list with locations.
+    locas = [center]
+    n = 0 #hexagonal layer
+    while True:
+        n += 1
+            
+        addedsome = False
+        for m in range(n): #points along one of the 6 sides of the layer
+            steps = np.sqrt(n**2 + m**2 - n*m)
+            radius = steps * spacing
+            check = (radius > min(extent))
+            bearing0 = np.rad2deg(np.arcsin(0.5*np.sqrt(3)*m/steps))
+            
+            for bearing in bearing0 + np.linspace(0, 360, 6, False): #the 6 sides of the layer
+                loca = Location.from_latlon(center.ll.destination(radius, bearing))
+                loca.label = f'Location on hexagonal grid, on layer {n}, bearing {bearing:.1f} deg.'
+                if not check or perimeter.contains(loca.point):
+                    addedsome = True
+                    locas.append(loca)
+        if not addedsome:
+            break
+    #Filter if wanted.
+    if geofilter is not None:
+        locas = geofilter(locas)
+    #Return list.
+    if len(locas) > 300:
+        print(f"Created many ({len(locas)}) locations!")
+    return locas
+
+# %% Openstreetmap
+
+def _get_nodes(center:Location, extent:Iterable[float], nodequery:str) -> Iterable[Location]:
+    api = overpy.Overpass()
+    perimeter = perimeterpoints(center, extent)
+    lats, lons = zip(*[p.coords for p in perimeter.values()])
+    bbox = (min(lats), min(lons), max(lats), max(lons))
+    result = api.query(f'node[{nodequery}]{bbox};out;')
+    return result.nodes if result else []
+    
+def busstops(center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:
+    """Find bus stops in certain area.
+    center: location at center.
+    extent: how far in each direction (N, S, W, E) bus stops must extend (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    min_spacing: only include bus stops that are at least this far apart."""
+    nodes = _get_nodes(center, extent, '"highway"="bus_stop"')
+    locas = [Location((n.lat, n.lon)) for n in nodes]
+    for l, n in zip(locas, nodes):
+        l.transittype = 'bus_stop' #TODO: add as property to location class
+        l.tags = n.tags
+    if min_spacing > 0:
+        locas = thin_out(locas, min_spacing)
+    return locas
+
+def railstops(center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:       
+    """Find railway stops in certain area; see .busstops method for more information."""
+    nodes = _get_nodes(center, extent, '"public_transport"="station"')
+    locas = [Location((n.lat, n.lon)) for n in nodes]
+    for l, n in zip(locas, nodes):
+        l.transittype = 'station' #TODO: add as property to location class
+        l.tags = n.tags
+    if min_spacing > 0:
+        locas = thin_out(locas, min_spacing)
+    return locas 
+

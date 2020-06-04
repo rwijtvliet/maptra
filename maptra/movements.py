@@ -7,6 +7,7 @@ from maptra.memoize import memoize_immutable
 import geopandas as gpd
 import numpy as np
 from typing import Dict, Tuple, List, Union, Set
+from googlemaps.convert import decode_polyline, encode_polyline
 
 # class Directions1:
 #     """

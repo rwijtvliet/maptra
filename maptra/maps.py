@@ -21,9 +21,6 @@ import googlemaps
 import pandas as pd
 import pickle
 
-
-CRS_LONLAT = 'epsg:4326'
-
 class Map:
     """Map that shows the surroundings of a certain central point. The 
     surroundings are shown by somehow taking into account how the various points

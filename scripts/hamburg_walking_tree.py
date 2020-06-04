@@ -6,9 +6,10 @@ Script to create an image of Hamburg, showing how to get where on foot.
 @author: Ruud Wijtvliet, rwijtvliet@gmail.com
 """
 
-# %% Imports.
+# %% Create map.
 
-from maptra import Map, CreateLocations, Location
+from maptra import Map, Location
+import maptra.locations as locas
 
 with open('apikey.txt') as f:
     apikey = f.read().strip()
@@ -16,8 +17,8 @@ with open('apikey.txt') as f:
 
 # Create.
 m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking')
-filtr = CreateLocations.geofilter()
-m.add_locations(CreateLocations.on_circular_grid(m.start, 1_000, [10_000], geofilter=filtr))
+filtr = locas.geofilter()
+m.add_locations(locas.on_circular_grid(m.start, 1_000, [10_000], geofilter=filtr))
 
 # Save.
 # m.to_pickle("pickle/hamburg_walking_1000_10000.pkl")
@@ -29,6 +30,7 @@ m = Map.from_pickle("pickle/hamburg_walking_1000_10002.pkl")
 
 from maptra import Visualization
 import geopandas as gpd
+
 viz = Visualization(m, 'EPSG:5243') #) #, '3395, 4326, 5243, 25832
 
 # Background map:
@@ -70,7 +72,7 @@ viz.showfig(0.03)
 # %% Save file.
 
 from pathlib import Path
-folderpath = 'output/2020_05_01_hamburg_walking_10km/' #with trailing /
+folderpath = 'output/temp/' #with trailing /
 filename = 'trippy' #no extension
 
 Path(folderpath).mkdir(parents=True, exist_ok=True)
