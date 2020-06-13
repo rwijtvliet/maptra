@@ -4,9 +4,11 @@ Classes for movement, in various detail levels.
 
 from maptra.locations import Location
 from maptra.memoize import memoize_immutable
+import random
 import geopandas as gpd
 import numpy as np
 from typing import Dict, Tuple, List, Union, Set
+from geopy.distance import great_circle
 from googlemaps.convert import decode_polyline, encode_polyline
 
 # class Directions1:
@@ -92,7 +94,7 @@ from googlemaps.convert import decode_polyline, encode_polyline
 #         ROAD, WATER, STEEP, OTHER}"""
 #         if (m := self.mode) != 'TRANSIT':
 #             return m
-#         vt = self.vehicle_type
+#         vt = self.vehicletype
 #         for group, name in TRAVEL_MODE_GROUPS.items():
 #             if vt in group:
 #                 return name
@@ -225,7 +227,6 @@ class Movement:
 
     Additionally, child classes can override any properties/methods of this class.
     """
-    
 
     @property
     def start(self) -> Location:
@@ -285,7 +286,7 @@ class Step(Movement):
     """
     Type of Movement with partial information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
-    * All other properties (.travel_mode, .vehicle_type, .carrier, .bbox, .route)
+    * All other properties (.travel_mode, .vehicletype, .carrier, .bbox, .route)
       apply to SINGLE step (i.e., last one necessary to reach end, starting at
       .routestart).
     """ 
@@ -305,7 +306,8 @@ class Step(Movement):
         """Distance over-the-road, in meters. Measured from start. 'fraction' 
         == 0 (to routestart), 1 (to end), 0..1 (in between, estimated)."""
         return self._prior_distance + fraction * self._api_result_step['distance']['value']
-    distance = property(distance_to_midpoint,
+    distance = property(
+        lambda self: self.distance_to_midpoint(1),
         doc="Distance over-the-road, from start to end, in meters.")
     distance_routeonly = property(
         lambda self: self.distance_to_midpoint(1) - self.distance_to_midpoint(0),
@@ -315,7 +317,8 @@ class Step(Movement):
         """Duration over-the-road, in seconds. Measured from start. 'fraction' 
         == 0 (to routestart), 1 (to end), 0..1 (in between, estimated)."""
         return self._prior_duration + fraction * self._api_result_step['duration']['value']
-    duration = property(duration_to_midpoint,
+    duration = property(
+        lambda self: self.duration_to_midpoint(1),
         doc="Duration over-the-road, from start to end, in seconds.")
     duration_routeonly = property(
         lambda self: self.duration_to_midpoint(1) - self.duration_to_midpoint(0),
@@ -324,11 +327,6 @@ class Step(Movement):
     @property
     def routestart(self) -> Location:
         return self._routestart
-    
-    @property
-    def bbox(self) -> Tuple[float]:
-        """Bounding box of route."""
-        return self._bbox
 
     @property
     def travel_mode(self) -> str:
@@ -336,7 +334,7 @@ class Step(Movement):
         return self._api_result_step['travel_mode']
     
     @property
-    def vehicle_type(self) -> str:
+    def vehicletype(self) -> str:
         """If travel_mode == 'TRANSIT', return one of {RAIL, METRO_RAIL, SUBWAY, TRAM,
         MONORAIL, HEAVY_RAIL, COMMUTER_TRAIN, HIGH_SPEED_TRAIN, LONG_DISTANCE_TRAIN,
         BUS, INTERCITY_BUS, TROLLEYBUS, SHARE_TAXI, FERRY, CABLE_CAR, GONDOLA_LIFT,
@@ -346,11 +344,11 @@ class Step(Movement):
     @property
     def carrier(self) -> str:
         """Return travel_mode (if it is one of {'WALKING', 'BICYCLING', 'DRIVING'}) 
-        or, if it is 'TRANSIT', return vehicle_type.""" 
+        or, if it is 'TRANSIT', return vehicletype.""" 
         if (travel_mode := self.travel_mode) != 'TRANSIT':
             return travel_mode
         else:
-            return self.vehicle_type
+            return self.vehicletype
         
     def extend_route(self, coords) -> None:
         """Save additional point to add to the route."""
@@ -367,16 +365,24 @@ class Step(Movement):
             return coordlist + [self._routeend]
         except AttributeError:
             return coordlist
-        
-    def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
-        """If point with 'coords' lies on route, return estimate for cumulative
-        distance and duration when reaching the point. Return False otherwise."""
+    
+    def within_bbox(self, loca:Location) -> bool:
+        """Return True if location lies within bounding box of route; False otherwise."""
+        bbox = self._bbox
+        coords = loca.coords
+        return (bbox[0] <= coords[0] <= bbox[2] and
+                bbox[1] <= coords[1] <= bbox[3])
+    
+    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Tuple[float, str]]:
+        """If location 'loca' lies on route, return dictionary with estimate for 
+        cumulative distance ('distance') and duration ('duration') when reaching 
+        the location, distance to routestart or end ('nearest') and vehicle (if 
+        any) used to get there ('vehicletype'). Return False otherwise."""
         #Fast check: inside bounding box.
-        bbox = self.bbox
-        if not (bbox[0] <= coords[0] <= bbox[2]
-            and bbox[1] <= coords[1] <= bbox[3]):
+        if not self.within_bbox(loca):
             return False
         #Slower check: within lat-lon square around point.
+        coords = loca.coords
         deltalatlim = np.rad2deg(max_dist / 6356000)
         deltalonlim = deltalatlim / np.cos(np.deg2rad(coords[0]))
         for p in self.route:
@@ -386,20 +392,24 @@ class Step(Movement):
                 dist_to_rstart = great_circle(coords, self.routestart.coords).m
                 dist_to_end = great_circle(coords, self.end.coords).m
                 f = dist_to_rstart / (dist_to_rstart + dist_to_end)
-                return (self.distance_to_midpoint(f), self.duration_to_midpoint(f))
+                return {'distance': self.distance_to_midpoint(f), 
+                        'duration': self.duration_to_midpoint(f),
+                        'nearest': min([dist_to_end, dist_to_rstart]),
+                        'vehicletype': self.vehicletype}
         return False
     
 class Directions(Movement):
     """
     Type of Movement with information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
-    * Same goes for all other properties (.travel_modes, .vehicle_types, 
+    * Same goes for all other properties (.travel_modes, .vehicletypes, 
       .carriers, .bbox, .route)
     * individual Steps.
     
-    Instance can be initialised with partial information (duration and distance
-    only). In that case, an api-call is only made if other information is 
-    needed. The .state property gives information about this.
+    Partial information (duration and distance) can be provided from externally,
+    either during or after initialisation. In that case, an api-call is only 
+    made if other information is needed. The .state property gives information 
+    about this.
     """
 
     _gmaps = None
@@ -408,26 +418,56 @@ class Directions(Movement):
         cls._gmaps = client
 
     def __init__(self, start:Location, end:Location, mode:str='walking', 
-                 duration:float=None, distance:float=None, **gmaps_kwargs):
+                 **gmaps_kwargs):
         self._start = start
         self._end = end
         self._mode = mode
-        self._duration = duration
-        self._distance = distance
         self._gmaps_kwargs = gmaps_kwargs
+        self._duration = None
+        self._distance = None
         self._full_api_result = None #Finding directions: None: to-try, []: failed, [...]: success
 
     @property
     def distance(self) -> float:
+        """"Distance over-the-road, from start to end, in meters."""
         if self._full_api_result is None and self._distance is not None:
             return self._distance
         return self._get_full_api_result()[0]['legs'][0]['distance']['value']
+    @distance.setter
+    def distance(self, val):
+        if self._distance is None:
+            self._distance = val
     
     @property
     def duration(self) -> float:
+        """Duration over-the-road, from start to end, in seconds."""
         if self._full_api_result is None and self._duration is not None:
             return self._duration
         return self._get_full_api_result()[0]['legs'][0]['duration']['value']
+    @duration.setter
+    def duration(self, val):
+        if self._duration is None:
+            self._duration = val
+   
+    def check_estimate(self, other:Movement) -> bool:
+        """Check if information in 'other' can give an estimate for duration and
+        distance. (Or improve on the current estimate.)"""
+        if self.state == 2:
+            return False # don't check estimate if maximum information already known
+        result = other.on_route(self.end)
+        if not result:
+            return False # not on route
+        if not compatibility_vehicletype_transittype(
+                result['vehicletype'],
+                getattr(self.end, 'transittype', None)):
+            return False # on route, but route passes in incorrect vehicle
+        if getattr(self, '_est_nearest', np.inf) < result['nearest']:
+            return False # estimate worse than currently present estimate
+        self._est_nearest = result['nearest']
+        self._est_source = other
+        self.duration = result['duration']
+        self.distance = result['distance']
+        return True
     
     @property
     def state(self) -> int:
@@ -439,7 +479,7 @@ class Directions(Movement):
             return 2
         if self._duration is not None:
             return 1
-        return 0     
+        return 0
     
     def _get_full_api_result(self) -> str:
         """Information about the directions, as object returned by google api."""
@@ -486,12 +526,6 @@ class Directions(Movement):
              'overview_polyline': {'points': encode_polyline([steps[0]['start_location']] + [s['end_location'] for s in steps])},
              'summary': 'Summary111', 'waypoint_order': [], 'warnings': ['Spoofed directions to avoid calling api.']}]
 
-    @property
-    def bbox(self) -> Tuple[float]:
-        """Bounding box of route."""
-        bounds = self._get_full_api_result()[0]['bounds']
-        return (bounds['southwest']['lat'], bounds['southwest']['lng'], 
-                bounds['northeast']['lat'], bounds['northeast']['lng'])
     
     @memoize_immutable
     def steps(self) -> List[Step]:
@@ -517,33 +551,40 @@ class Directions(Movement):
     
     @property 
     def travel_modes(self) -> Set[str]:
-        """Return set of all unique travel modes in these directions."""
-        return set([s.travel_mode for s in self.steps()])
+        """Return list of all unique travel modes in these directions (in order of use)."""
+        return [s.travel_mode for s in self.steps()]
     @property
-    def vehicle_types(self) -> Set[str]:
-        """Return set of all unique vehicle types in these directions."""
-        return set([s.vehicle_type for s in self.steps()])
+    def vehicletypes(self) -> Set[str]:
+        """Return list of all unique vehicle types in these directions (in order of use)."""
+        return [s.vehicletype for s in self.steps()]
     @property
-    def carriers(self) -> Set[str]:
-        """Return set of all unique carriers in these directions."""
-        return set([s.carrier for s in self.steps()])
+    def carriers(self) -> List[str]:
+        """Return list of all carriers in these directions (in order of use)."""
+        return [s.carrier for s in self.steps()]
    
     @property
     def route(self) -> List[Tuple]:
         """Return route of movement as list of (lat, lon)-tuples."""
         return [p for s in self.steps() for p in s.route]  
 
-    def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
-        """If point with 'coords' lies on route, return estimate for cumulative
+    def within_bbox(self, loca:Location) -> bool:
+        """Return True if location lies within bounding box of route; False otherwise."""
+        bounds = self._get_full_api_result()[0]['bounds']
+        bbox = (bounds['southwest']['lat'], bounds['southwest']['lng'], 
+                bounds['northeast']['lat'], bounds['northeast']['lng'])
+        coords = loca.coords
+        return (bbox[0] <= coords[0] <= bbox[2] and
+                bbox[1] <= coords[1] <= bbox[3])        
+
+    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Tuple[float]]:
+        """If location 'loca' lies on route, return estimate for cumulative
         distance and duration when reaching the point. Return False otherwise."""
         #Fast check: inside bounding box of directions.
-        bbox = self.bbox
-        if not (bbox[0] <= coords[0] <= bbox[2]
-            and bbox[1] <= coords[1] <= bbox[3]):
+        if not self.within_bbox(loca):
             return False
         #More precise: check per step.
         for step in self.steps():
-            if (result := step.on_route(coords, max_dist)):
+            if (result := step.on_route(loca, max_dist)):
                 return result
         #Not found on any of the steps.            
         return False   
@@ -759,7 +800,7 @@ class Directions(Movement):
 #         """Return one of {'WALKING', 'DRIVING', 'BICYCLING', 'TRANSIT'}."""
 #         return self.api_result()['travel_mode']
 #     @property
-#     def vehicle_type(self) -> str:
+#     def vehicletype(self) -> str:
 #         """If travel_mode == 'TRANSIT', return one of {RAIL, METRO_RAIL, SUBWAY, TRAM,
 #         MONORAIL, HEAVY_RAIL, COMMUTER_TRAIN, HIGH_SPEED_TRAIN, LONG_DISTANCE_TRAIN,
 #         BUS, INTERCITY_BUS, TROLLEYBUS, SHARE_TAXI, FERRY, CABLE_CAR, GONDOLA_LIFT,
@@ -769,11 +810,11 @@ class Directions(Movement):
 #     @property
 #     def carrier(self) -> str:
 #         """Return travel_mode (if it is one of {'WALKING', 'BICYCLING', 'DRIVING'}) 
-#         or, if it is 'TRANSIT', return vehicle_type.""" 
+#         or, if it is 'TRANSIT', return vehicletype.""" 
 #         if (travel_mode := self.travel_mode) != 'TRANSIT':
 #             return travel_mode
 #         else:
-#             return self.vehicle_type
+#             return self.vehicletype
         
 #     @property
 #     def bbox(self) -> Tuple[float]:
@@ -822,9 +863,9 @@ class Directions(Movement):
 #         """Return set of all unique travel modes in these directions."""
 #         return set([s.travel_mode for s in self.steps()])
 #     @property
-#     def vehicle_types(self) -> Set[str]:
+#     def vehicletypes(self) -> Set[str]:
 #         """Return set of all unique vehicle types in these directions."""
-#         return set([s.vehicle_type for s in self.steps()])
+#         return set([s.vehicletype for s in self.steps()])
 #     @property
 #     def carriers(self) -> Set[str]:
 #         """Return set of all unique carriers in these directions."""
@@ -933,19 +974,20 @@ class Directions(Movement):
 #         return [s for s in steps if len(s.route)>1]
 
 
-#%%
-class Test:
-    
-    def __init__(self):
-        self.a = 3
-        self.b = 4
-    
-    def add(self, added=1, subtr=6):
-        return self.a + added - subtr
-    add1 = property(add)
-    add2 = property(lambda self: self.add(3))
-    add3 = lambda self, addd: self.add(addd)
-    
+def compatibility_vehicletype_transittype(vehicletype, transittype) -> bool:
+    """Evaluates compatibility of vehicle type, used in a section (step) of a
+    directions object, with transit type of a location."""
+    if vehicletype is None: 
+        #Step is not using public transport, so any location on the route can be reached.
+        return True
+    if vehicletype.upper() in ('BUS', 'TROLLEYBUS') \
+        and transittype.lower() == 'bus':
+        return True
+    if vehicletype.upper() in ('RAIL', 'METRO_RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 
+        'HEAVY_RAIL', 'COMMUTER_TRAIN', 'LONG_DISTANCE_TRAIN', 'HIGH_SPEED_TRAIN') \
+        and transittype.lower() == 'rail':
+        return True
+    return False
     
     
     

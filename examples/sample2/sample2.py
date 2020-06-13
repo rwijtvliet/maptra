@@ -6,12 +6,13 @@ Created on Sat May  2 11:56:11 2020
 @author: Ruud Wijtvliet, rwijtvliet@gmail.com
 """
 
-from maptra import Map, CreateLocations, Visualization, Location
+from maptra import Map, Visualization, Location
+import maptra.locations as ml
 
 Map.set_gmaps_api_key("your key here") #Put in your own api key string.
 
 m = Map(Location([53.563, 9.928]), 'transit')
-locas = CreateLocations.on_hexagonal_grid(m.start, 1000, [4000])
+locas = ml.on_hexagonal_grid(m.start, [4000], 1000)
 m.add_locations(locas)
 
 viz = Visualization(m)

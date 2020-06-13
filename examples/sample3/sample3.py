@@ -8,14 +8,15 @@ Script to create an image of Hamburg, showing how to get where on foot.
 
 # %% Create map.
 
-from maptra import Map, CreateLocations
+from maptra import Map
+import maptra.locations as ml
 
 Map.set_gmaps_api_key("your key here") #Put in your own api key string.
 
 # Create. (Second argument: 'bicycling', 'walking', 'transit', or 'driving')
 m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking') #not my actual address ;)
-filtr = CreateLocations.geofilter() #filter out locations on water
-locas = CreateLocations.on_circular_grid(m.start, 1_000, [10_000], geofilter=filtr)
+filtr = ml.geofilter() #filter out locations on water
+locas = ml.on_circular_grid(m.start, [10_000], 1_000, geofilter=filtr)
 m.add_locations(locas)
 
 # Save. (Can be loaded at later point in time with Map.from_pickle(...).)

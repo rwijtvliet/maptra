@@ -9,7 +9,7 @@ Script to create an image of Hamburg, showing how to get where on by transit.
 # %% Create map.
 
 from maptra import Map, Location
-import maptra.locations as locas
+import maptra.locations as ml
 
 with open('apikey.txt') as f:
     apikey = f.read().strip()
@@ -17,8 +17,8 @@ with open('apikey.txt') as f:
 
 # Create.
 m = Map.from_address('stresemannstrasse 320, hamburg', 'transit')
-filtr = locas.geofilter()
-m.add_locations(locas.on_hexagonal_grid(m.start, 5_000, [7_000], geofilter=filtr))
+filtr = ml.geofilter()
+m.add_locations(ml.on_hexagonal_grid(m.start, [7_000], 5_000, geofilter=filtr))
 
 # Save.
 # m.to_pickle("pickle/hamburg_transit_5000_10000.pkl")

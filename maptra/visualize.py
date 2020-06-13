@@ -34,6 +34,7 @@ Sources of ESRI Shappe files for the background map:
 
 
 from maptra.locations import Location
+import maptra.locations as ml
 from maptra.movements import Directions
 from maptra.maps import Map
 import os
@@ -336,7 +337,7 @@ class Visualization:
             mask = gdf_voronoi.geometry.apply(lambda p: p.area) > 0
             gdf_voronoi = gdf_voronoi[mask]
         #Clip to 'land' and visualization's clipping area.
-        land = self._clip_and_reproject(CreateLocations._geodf()) 
+        land = self._clip_and_reproject(ml._geodf()) 
         gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
         # remove = self._clip_and_reproject(gpd.read_file(remove))
         # gdf_voronoi = gpd.overlay(gdf_voronoi, remove, how='difference') #both in self._crs

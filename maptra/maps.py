@@ -15,7 +15,7 @@ from maptra.locations import Location
 from maptra.movements import Directions
 from maptra.forest import ForestStruct
 
-from typing import Iterable, List, Tuple, Dict, Set, Any, Union, Callable
+from typing import Iterable, List, Tuple, Dict, Set, Union, Callable
 import numpy as np
 import googlemaps
 import pandas as pd
@@ -110,11 +110,7 @@ class Map:
     def add_locations(self, locas:Iterable[Location]) -> None:
         """Add locations to the map."""
         self.__add_locas_to_df(locas)
-    
-    def clear_locations(self) -> None:
-        """Clear list of locations and directons (by putting them on 'inactive')."""
-        self._df['in_df'] = False
-    
+
     def __add_locas_to_df(self, locas:Iterable[Location]) -> None:
         """In list of locations, first check if they can be replaced by any that
         are already in the archive, to save on api-calls. If not, add them to 
@@ -216,7 +212,7 @@ class Map:
     @property
     def carriers(self) -> Set[str]:
         """Return set of all unique transport carriers in this map's directions."""
-        return set.union(*[d.carriers() for d in self.df['directions']])
+        return set([c for d in self.df['directions'] for c in d.carriers()])
 
     # Movements        
     
@@ -238,5 +234,45 @@ class Map:
         df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
         mask = (df.routedist > min_dist)
         return df.step[mask]
+
+
+    
+class CheapMap(Map):
+    """Like Map but designed to minimize the number of API-calls."""
+    
+    def make_apicalls(self):
+        """Make API-calls and estimate the distance and duration to other 
+        locations that happen to be on the route."""
+        while True:
+            mask = self.df['directions'].apply(lambda d: d.state == 0)
+            df = self.df[mask]
+            if not len(df): #All done
+                break
+            # Find the furthest location of which distance and duration are unknown.
+            i = df['directions'].apply(lambda d: d.crow_distance).idxmax()
+            d = df.loc[i, 'directions']
+            _ = d._get_full_api_result() #Force API-call
+            # See if any locations are on this route.
+            for d2 in self.df['directions']:
+                print(d2.check_estimate(d))
+        states = np.array([d.state for d in self.df['directions']])
+        total = len(states)
+        called = sum(states == 2)
+        print(f'Made {called} api-calls for {total} locations (reduction of' +
+              f' {1-called/total:.0%}).')
         
+    def steps(self, min_dist = 40) -> pd.Series:
+        """Returns individual steps of all directions in map, if route_distance
+        of the step is at least 'min_dist'."""
+        s_dirs = self.df_success['directions']
+        df = pd.DataFrame({'step': [step for steps in s_dirs.apply(lambda d: d.steps())
+                                   for step in steps]})
+        # Remove steps with duplicate end point.
+        df['coords'] = df.step.apply(lambda s: s.end.coords)
+        df.drop_duplicates('coords', inplace=True)
+        # Remove steps with too small route distance.
+        df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
+        mask = (df.routedist > min_dist)
+        return df.step[mask]
+    
     

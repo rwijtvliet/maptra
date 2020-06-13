@@ -8,13 +8,11 @@ from maptra.memoize import memoize_mutable, memoize_immutable
 
 from typing import Tuple, List, Iterable, Dict, Set, Union, Callable
 import overpy
-import random
 import numpy as np
 import geopandas as gpd
 import pygeodesy.sphericalTrigonometry as st
 import shapely.geometry as sg
 from geopy.distance import great_circle
-
 
 class Location:
     """
@@ -68,7 +66,7 @@ class Location:
     #Instance methods.
     
     def __init__(self, coords:Iterable[float], ):
-        self._coords = tuple(coords)
+        self._coords = tuple([float(c) for c in coords])
         self._api_result = None #Finding address belonging to coordinates: 
                                 #None: not yet tried, []: failed, [...]: success
         self._label = None
@@ -122,22 +120,6 @@ class Location:
     def label(self, val:str):
         """Set label for this location."""
         self._label = val
-    
-    # @property 
-    # def hop(self) -> float:
-    #     """Return hop to this location."""
-    #     pass
-    
-    # @hop.setter
-    # def hop(self, val):
-    #     """Set hop for this location."""
-    #     self._hop = val
-    
-    @staticmethod
-    def changerepr(current):
-        def new(*args, **kwargs):
-            return current(*args, **kwargs).replace('rwap.components', '')
-        return new
     
     def __repr__(self):
         return self.__class__.__name__ + ' object at ' + hex(id(self))
@@ -246,6 +228,8 @@ def thin_out(locas:Iterable[Location], min_dist:float=100) -> Iterable[Location]
     Return a subset of location-collection 'locas', in which all locations
     are further apart than 'min_dist'.
     """
+    if not locas:
+        return locas
     # Define function to determine if too close.
     def tooclose_function(maxabslat) -> Callable:
         deltalatlim = np.rad2deg(min_dist / 6356000)
@@ -307,14 +291,14 @@ def from_address_list(addresses:List, *,
         locas = [loca for loca in locas if geofilter(loca)]
     return locas
 
-def on_rectangular_grid(center:Location, spacing:float, extent:Iterable[float], *,
+def on_rectangular_grid(center:Location, extent:Iterable[float], spacing:float, *,
                         geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
     """Create a rectangular grid of points around a central location. 
     center: location at center of grid.
-    spacing: north-south and east-west spacing of points (in m), at least for locations
-    near center and for those on main north-south and east-west lines from center.
     extent: how far in each direction (N, S, W, E) the grid must extend (in m).
         One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    spacing: north-south and east-west spacing of points (in m), at least for locations
+        near center and for those on main north-south and east-west lines from center.
     geofilter: see class's geofilter method."""
     #Get number of points in each compass direction.
     extent = expand_extent(extent)
@@ -359,16 +343,13 @@ def on_rectangular_grid(center:Location, spacing:float, extent:Iterable[float], 
         print(f"Created many ({len(locas)}) locations!")
     return locas
 
-def on_circular_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
+def on_circular_grid(center:Location, extent:Iterable[float], spacing:float, geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
     """Create a grid of points in concentric circles, around a central location. 
     center: location at center of grid.
-    spacing: value (in m) with which radius increases with each consecutive 
-        circle. Also approximate spacing between location and 6 nearest neighbors.
     extent: how far in each direction (N, S, W, E) the grid must extend (in m).
         One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    spacing: value (in m) with which radius increases with each consecutive circle.
     geofilter: see class's geofilter method."""
-    #Get extent in each compass direction.
-    extent = expand_extent(extent)
     #polygon the locations must lie within.
     perimeter = perimeterpolygon(center, extent)
     #Create list with locations.
@@ -396,15 +377,13 @@ def on_circular_grid(center:Location, spacing:float, extent:Iterable[float], geo
         print(f"Created many ({len(locas)}) locations!")
     return locas
 
-def on_hexagonal_grid(center:Location, spacing:float, extent:Iterable[float], geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
+def on_hexagonal_grid(center:Location, extent:Iterable[float], spacing:float, geofilter:Callable[[Iterable[Location]], bool]=None) -> List[Location]:
     """Create a grid of points on hexagonal grid, around a central location. 
     center: location at center of grid.
-    spacing: approximate distance (in m) between location and 6 nearest neighbors.
     extent: how far in each direction (N, S, W, E) the grid must extend (in m).
         One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    spacing: approximate distance (in m) between location and 6 nearest neighbors.
     geofilter: see class's geofilter method."""
-    #Get extent in each compass direction.
-    extent = expand_extent(extent)
     #polygon the locations must lie within.
     perimeter = perimeterpolygon(center, extent)
     #Create list with locations.
@@ -455,18 +434,22 @@ def busstops(center:Location, extent:Iterable[float], min_spacing=50) -> Iterabl
     nodes = _get_nodes(center, extent, '"highway"="bus_stop"')
     locas = [Location((n.lat, n.lon)) for n in nodes]
     for l, n in zip(locas, nodes):
-        l.transittype = 'bus_stop' #TODO: add as property to location class
+        l.transittype = 'bus' #TODO: add as property to location class
         l.tags = n.tags
     if min_spacing > 0:
         locas = thin_out(locas, min_spacing)
     return locas
 
 def railstops(center:Location, extent:Iterable[float], min_spacing=50) -> Iterable[Location]:       
-    """Find railway stops in certain area; see .busstops method for more information."""
+    """Find railway stops in certain area.
+    center: location at center.
+    extent: how far in each direction (N, S, W, E) bus stops must extend (in m).
+        One/Two/Three/Four value(s): NSWE  /  NS, WE  /  N, WE, S   /   N, W, E, S.
+    min_spacing: only include bus stops that are at least this far apart."""
     nodes = _get_nodes(center, extent, '"public_transport"="station"')
     locas = [Location((n.lat, n.lon)) for n in nodes]
     for l, n in zip(locas, nodes):
-        l.transittype = 'station' #TODO: add as property to location class
+        l.transittype = 'rail' #TODO: add as property to location class
         l.tags = n.tags
     if min_spacing > 0:
         locas = thin_out(locas, min_spacing)
