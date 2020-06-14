@@ -9,7 +9,7 @@ the central station.
 
 # %% Create map.
 
-from maptra import Map, CheapMap, Location
+from maptra import Map, Location
 import maptra.locations as ml
 import numpy as np
 
@@ -19,16 +19,15 @@ with open('apikey.txt') as f:
 
 # Create.
 # m = Map.from_address('Hauptbahnhof, hamburg', 'transit')
-m = CheapMap.from_coords((53.552998, 10.006624), 'transit')
+m = Map.from_coords((53.552998, 10.006624), 'transit')
 locas = ml.railstops(m.start, [1000])
 m.add_locations(locas)
-locas = ml.busstops(m.start, [1000], 100)
+locas = ml.busstops(m.start, [500], 100)
 m.add_locations(locas)
-
 m.make_apicalls()
 
 # Save.
-m.to_pickle("pickle/hamburg_transitlocations.pkl")
+# m.to_pickle("pickle/hamburg_transitlocations.pkl")
 # Load
 # m = Map.from_pickle("pickle/hamburg_transit_5000_10000.pkl")
 

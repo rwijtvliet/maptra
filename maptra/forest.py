@@ -30,7 +30,7 @@ class ForestStruct:
     def __init__(self):
         self._forest = []
         
-    def add_path(self, *paths:Iterable) -> None:
+    def add_paths(self, *paths:Iterable) -> None:
         """Integrate one or more complete root-to-leaf paths into forest."""
         for path in paths:
             if path is not None and len(path) > 0:

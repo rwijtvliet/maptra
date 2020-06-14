@@ -96,7 +96,7 @@ class Visualization:
         self._data = {} #To save data of calculations. Unclear if needed; TODO: remove if not needed.
         
         #Use all locations on the map to calculate some initial things.
-        gdf = GeoDataFrame(geometry=[l.point for l in self._map.df['location']], 
+        gdf = GeoDataFrame(geometry=[d.end.point for d in self._map.directions], 
                            crs=CRS_LONLAT)
         #Check: locations inside area-of-use of crs.
         outside_aou = (~gdf.within(sg.box(*self._crs.area_of_use.bounds))).sum()
@@ -262,7 +262,7 @@ class Visualization:
         location is where the point would be, if all points could be reached at
         same speed. All kwargs are passed to the plot (ax.quiver) function."""
         #Get data.
-        s_dirs = self._map.df_success['directions']
+        s_dirs = self._map.directions
         df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.crow_speed),
                            'duration': s_dirs.apply(lambda x: x.duration)})
         av_speed = df['speed'].mean()        
@@ -311,7 +311,7 @@ class Visualization:
         if inter:
             s_mov = self._map.steps(0)
         else:
-            s_mov = self._map.df_success['directions']
+            s_mov = self._map.directions
             
         mask = s_mov.apply(lambda x: x.route[-1]).duplicated()
         s_mov = s_mov[~mask]  #keep only one route per end point.
@@ -375,7 +375,7 @@ class Visualization:
         if inter:
             s_mov = self._map.steps(0)
         else:
-            s_mov = self._map.df_success['directions']
+            s_mov = self._map.directions
                 
         if asfound:
             s = [Location(coords) for coords in s_mov.apply(lambda m: m.route[-1]).unique()]

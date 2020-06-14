@@ -74,142 +74,6 @@ from googlemaps.convert import decode_polyline, encode_polyline
 #     """
 
 
-    
-# class Step1:
-#     #https://developers.google.com/maps/documentation/directions/intro
-    
-#     TRAVEL_MODE_GROUPS = {
-#         ('RAIL', 'METRO_RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 'HEAVY_RAIL', 'COMMUTER_TRAIN'): 'LOCAL_RAIL', 
-#         ('LONG_DISTANCE_TRAIN', ): 'LONG_DISTANCE_RAIL',
-#         ('HIGH_SPEED_TRAIN', ): 'HIGH_SPEED_RAIL',
-#         ('BUS', 'INTERCITY_BUS', 'TROLLEYBUS', 'SHARE_TAXI'): 'ROAD', 
-#         ('FERRY', ): 'WATER',
-#         ('CABLE_CAR', 'GONDOLA_LIFT', 'FUNICULAR'): 'STEEP',
-#         ('OTHER', ): 'OTHER'}
-    
-#     @property
-#     def means(self):
-#         """Return mode or a reduced version of the vehicle type. Return one of
-#         {WALKING, DRIVING, BICYCLING, LOCAL_RAIL, LONG_DISTANCE_RAIL, HIGH_SPEED_RAIL,
-#         ROAD, WATER, STEEP, OTHER}"""
-#         if (m := self.mode) != 'TRANSIT':
-#             return m
-#         vt = self.vehicletype
-#         for group, name in TRAVEL_MODE_GROUPS.items():
-#             if vt in group:
-#                 return name
-#         return 'OTHER'
-        
-    
-# class Movement1:
-#     """
-#     Parent class for the Directions, Step, and Hop classes.
-    
-#     In order to use without overriding any methods or attributes, child classes
-#     must implement following methods/attributes:
-#         ._start, ._routestart, ._end (Locations)
-#         ._prior_distance, ._prior_duration (floats)
-#         .bbox
-#         .route
-#         .api_result()
-
-#     Additionally, child classes can override any properties/methods of this class.
-#     """
-    
-#     @property
-#     def start(self) -> Location:
-#         """Return start Location."""
-#         return self._start
-    
-#     @property
-#     def routestart(self) -> Location:
-#         """Return Location at start of the section for which a route is available."""
-#         return self._routestart
-    
-#     @property
-#     def end(self) -> Location:
-#         """Return end Location."""
-#         return self._end
-
-#     def get_distance(self, cumul:bool=True, fraction=1) -> float:
-#         """Distance of this movement over-the-road, in meters. 'fraction' ==
-#         0 (distance at start), 1 (at end), 0..1 (in between), linear interp."""
-#         return (self._prior_distance if cumul else 0) + \
-#             fraction * self.api_result()['distance']['value']
-#     distance = property(get_distance)
-     
-#     def get_duration(self, cumul:bool=True, fraction=1) -> float:
-#         """Duration of this movement over-the-road, in seconds. 'fraction' ==
-#         0 (duration at start), 1 (at end), 0..1 (in between), linear interp."""
-#         return (self._prior_duration if cumul else 0) + \
-#             fraction * self.api_result()['duration']['value']
-#     duration = property(get_duration)
-            
-#     def __start(self, cumul:bool=True) -> Location:
-#         return self.start if cumul else self.routestart
-    
-#     def get_crow_distance(self, cumul:bool=True) -> float:
-#         """Distance as-the-crow-flies, in meters."""
-#         return self.__start(cumul).ll.distanceTo(self.end.ll)
-#     crow_distance = property(get_crow_distance)
-
-#     def get_crow_bearing(self, cumul:bool=True) -> float:
-#         """Bearing as-the-crow-flies during movement, in degrees."""
-#         return self.__start(cumul).ll.initialBearingTo(self.end.ll)
-#     crow_bearing = property(get_crow_bearing)
-    
-#     @property
-#     def crow_speed(self) -> float:
-#         """Speed as-the-crow-flies from start to end of this movement, in meters per second."""
-#         if (dura := self.duration) is not None and dura > 0:
-#             return self.crow_distance / dura    
-        
-#     @property  
-#     def distance_factor(self) -> float:
-#         """Ratio between as-the-crow-flies distance and over-the-road distance, 
-#         from origin to end of this movement."""
-#         if (road := self.distance) is not None:
-#             if (crow := self.crow_distance) == 0:
-#                 return 1 #if distance by air == 0, start and end must be same, so no distance.
-#             else:
-#                 return crow / road          
-    
-#     def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
-#         """If point with 'coords' lies on route, return estimate for cumulative
-#         distance and duration when reaching the point. Return False otherwise."""
-#         #Fast check: inside bounding box.
-#         bbox = self.bbox
-#         if not (bbox[0] <= coords[0] <= bbox[2]
-#             and bbox[1] <= coords[1] <= bbox[3]):
-#             return False
-#         #Slower check: within lat-lon rect around point.
-#         deltalatlim = np.rad2deg(max_dist / 6356000)
-#         deltalonlim = deltalatlim / np.cos(np.deg2rad(coords[0]))
-#         for p in self.route:
-#             if (-deltalatlim < coords[0] - p[0] < deltalatlim
-#                 and -deltalonlim < coords[1] - p[1] < deltalonlim):
-#                 #Found point. Return values.
-#                 dist_to_rstart = great_circle(coords, self.routestart.coords).m
-#                 dist_to_end = great_circle(coords, self.end.coords).m
-#                 f = dist_to_rstart / (dist_to_rstart + dist_to_end)
-#                 return (self.get_distance(True, f), self.get_duration(True, f))
-#         return False
-    
-#     def end_durationcorrected(self, crow_speed:float) -> Location:
-#         """Where end location would be, if cumulative movement had given
-#         (instead of actual) 'crow speed', while keeping its duration. 
-#         Location in same compass direction (bearing) as the original."""
-#         dist, bear = crow_speed * self.duration, self.crow_bearing
-#         return Location.from_latlon(self.start.ll.destination(dist, bear))
-  
-#     def end_distancecorrected(self, distance_factor:float) -> Location:
-#         """Where end location would be, if cumularive movement had given
-#         (instead of actual) 'distance factor', while keeping its (over-the-road-)
-#         distance. Location in same compass direction (bearing) as original."""
-#         dist, bear = distance_factor * self.distance, self.crow_bearing
-#         return Location.from_latlon(self.start.ll.destination(dist, bear))  
-
-
 
 
 class Movement:
@@ -302,7 +166,7 @@ class Step(Movement):
         lats, lons = zip(*self.route)
         self._bbox = (min(lats), min(lons), max(lats), max(lons))
 
-    def distance_to_midpoint(self, fraction=1) -> float:
+    def distance_to_midpoint(self, fraction:float=1) -> float:
         """Distance over-the-road, in meters. Measured from start. 'fraction' 
         == 0 (to routestart), 1 (to end), 0..1 (in between, estimated)."""
         return self._prior_distance + fraction * self._api_result_step['distance']['value']
@@ -313,7 +177,7 @@ class Step(Movement):
         lambda self: self.distance_to_midpoint(1) - self.distance_to_midpoint(0),
         doc="Distance over-the-road, from routestart to end, in meters.")
     
-    def duration_to_midpoint(self, fraction=1) -> float:
+    def duration_to_midpoint(self, fraction:float=1) -> float:
         """Duration over-the-road, in seconds. Measured from start. 'fraction' 
         == 0 (to routestart), 1 (to end), 0..1 (in between, estimated)."""
         return self._prior_duration + fraction * self._api_result_step['duration']['value']
@@ -373,31 +237,71 @@ class Step(Movement):
         return (bbox[0] <= coords[0] <= bbox[2] and
                 bbox[1] <= coords[1] <= bbox[3])
     
-    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Tuple[float, str]]:
-        """If location 'loca' lies on route, return dictionary with estimate for 
+    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Dict]:
+        """If location 'loca' lies on route (i.e., has a distance below 
+        'max_dist' to a point on the route), return dictionary with estimate for 
         cumulative distance ('distance') and duration ('duration') when reaching 
-        the location, distance to routestart or end ('nearest') and vehicle (if 
+        the location, point on route that is closest to location ('routepoint'),
+        distance to routestart or end ('nearest_anchor') and vehicle (if 
         any) used to get there ('vehicletype'). Return False otherwise."""
         #Fast check: inside bounding box.
         if not self.within_bbox(loca):
             return False
-        #Slower check: within lat-lon square around point.
+        #Slower check: within lat-lon square around location.
         coords = loca.coords
         deltalatlim = np.rad2deg(max_dist / 6356000)
         deltalonlim = deltalatlim / np.cos(np.deg2rad(coords[0]))
+        candidates = []
         for p in self.route:
             if (-deltalatlim < coords[0] - p[0] < deltalatlim
                 and -deltalonlim < coords[1] - p[1] < deltalonlim):
-                #Found point. Return values.
-                dist_to_rstart = great_circle(coords, self.routestart.coords).m
-                dist_to_end = great_circle(coords, self.end.coords).m
-                f = dist_to_rstart / (dist_to_rstart + dist_to_end)
-                return {'distance': self.distance_to_midpoint(f), 
-                        'duration': self.duration_to_midpoint(f),
-                        'nearest': min([dist_to_end, dist_to_rstart]),
-                        'vehicletype': self.vehicletype}
-        return False
+                candidates.append(p)
+        if not candidates:
+            return False
+        #Slowest check: great circle distance
+        dists = np.array([great_circle(coords, p).m for p in candidates])
+        i = dists.argmin()
+        if dists[i] > max_dist:
+            return False
+        #Found point. Return values.
+        dist_to_rstart = great_circle(coords, self.routestart.coords).m
+        dist_to_end = great_circle(coords, self.end.coords).m
+        f = dist_to_rstart / (dist_to_rstart + dist_to_end)
+        return {'distance': self.distance_to_midpoint(f), 
+                'duration': self.duration_to_midpoint(f),
+                'stepfraction': f,
+                'nearest_anchor': min([dist_to_end, dist_to_rstart]),
+                'routepoint': candidates[i],
+                'vehicletype': self.vehicletype}
     
+
+class PartialStep(Step):
+    """Partial Step, i.e., step (as returned by the Directions object) but with
+    an arbitrary (new) end point along its route."""
+    def __init__(self, step:Step, estimate:Dict):
+        self.__dict__ = step.__dict__
+        self._estimate = estimate
+    
+    def distance_to_midpoint(self, fraction:float=1) -> float:
+        f = fraction * self._estimate['stepfraction'] #Fraction along entire (instead of partial) step
+        return super().distance_to_midpoint(f)
+    def duration_to_midpoint(self, fraction:float=1) -> float:
+        f = fraction * self._estimate['stepfraction'] #Fraction along entire (instead of partial) step
+        return super().duration_to_midpoint(f)
+        
+    @property
+    def route(self):
+        fullroute = super().route
+        for i, p in enumerate(fullroute):
+            if np.allclose(p, self._estimate['routepoint']):
+                return fullroute[:i+1]
+        raise ValueError(f"Cannot find point {self._estimate['routepoint']} on route of step.")
+        
+    def on_route(self, loca:Location, **kwargs) -> bool:
+        return False #always False, because there is a better (entire) step somewhere to check for this.
+
+
+
 class Directions(Movement):
     """
     Type of Movement with information about getting from start to end:
@@ -423,62 +327,54 @@ class Directions(Movement):
         self._end = end
         self._mode = mode
         self._gmaps_kwargs = gmaps_kwargs
-        self._duration = None
-        self._distance = None
+        self._estimate = None
+        self._spoofed = False
         self._full_api_result = None #Finding directions: None: to-try, []: failed, [...]: success
 
     @property
     def distance(self) -> float:
         """"Distance over-the-road, from start to end, in meters."""
-        if self._full_api_result is None and self._distance is not None:
-            return self._distance
+        if self._full_api_result is None and self._estimate is not None:
+            return self._estimate['distance']
         return self._get_full_api_result()[0]['legs'][0]['distance']['value']
-    @distance.setter
-    def distance(self, val):
-        if self._distance is None:
-            self._distance = val
     
     @property
     def duration(self) -> float:
         """Duration over-the-road, from start to end, in seconds."""
-        if self._full_api_result is None and self._duration is not None:
-            return self._duration
+        if self._full_api_result is None and self._estimate is not None:
+            return self._estimate['duration']
         return self._get_full_api_result()[0]['legs'][0]['duration']['value']
-    @duration.setter
-    def duration(self, val):
-        if self._duration is None:
-            self._duration = val
    
     def check_estimate(self, other:Movement) -> bool:
         """Check if information in 'other' can give an estimate for duration and
         distance. (Or improve on the current estimate.)"""
         if self.state == 2:
             return False # don't check estimate if maximum information already known
-        result = other.on_route(self.end)
-        if not result:
+        estimate = other.on_route(self.end)
+        if not estimate:
             return False # not on route
         if not compatibility_vehicletype_transittype(
-                result['vehicletype'],
+                estimate['vehicletype'],
                 getattr(self.end, 'transittype', None)):
             return False # on route, but route passes in incorrect vehicle
-        if getattr(self, '_est_nearest', np.inf) < result['nearest']:
+        if self._estimate is not None and self._estimate['nearest_anchor'] < estimate('nearest_anchor'):
             return False # estimate worse than currently present estimate
-        self._est_nearest = result['nearest']
-        self._est_source = other
-        self.duration = result['duration']
-        self.distance = result['distance']
+        self._estimate = estimate
         return True
     
     @property
     def state(self) -> int:
         """Decribes how much is known about getting from start to end.
-        0: no information yet. 
+        -1: no information was found. 
+        0: no information was queried yet. 
         1: duration and distance only ('hop').
-        2: also route, bbox, etc.""" 
-        if self._full_api_result is not None:
+        2: also route, bbox, etc."""
+        if self._full_api_result is not None and self._full_api_result != []:
             return 2
-        if self._duration is not None:
+        if self._estimate is not None:
             return 1
+        if self._full_api_result == []:
+            return -1
         return 0
     
     def _get_full_api_result(self) -> str:
@@ -492,14 +388,17 @@ class Directions(Movement):
             raise ValueError('No directions from start to end has been found.')
         return self._full_api_result         #Attempt was made and successful.
     
-    def spoof(self, spoof:bool=True):
+    def spoof_apicall(self, do_spoof:bool=True) -> None:
         """Make up random api-result with a few steps, so that no api-calls need 
-        to be made. (debugging purposes only) To undo, call with spoof=False."""
-        if not spoof: 
-            self._full_api_result = None
-            return        
+        to be made. (debugging purposes only) To undo, call with do_spoof=False."""
+        if not do_spoof:
+            if self._spoofed:
+                self._full_api_result = None
+                self._spoofed = False
+            return
+        #Do spoofing...
         if self._full_api_result is not None:
-            return #don't accidentally clear legitimate api result.
+            return #...but only if legitimate api result doesn't exist.
         lldict = lambda coords: {k: v for k, v in zip(('lat', 'lng'), coords)}
         start_coords = np.array(self.start.coords)
         end_coords = np.array(self.end.coords)
@@ -525,11 +424,18 @@ class Directions(Movement):
                   'traffic_speed_entry': [], 'via_waypoint': []}],
              'overview_polyline': {'points': encode_polyline([steps[0]['start_location']] + [s['end_location'] for s in steps])},
              'summary': 'Summary111', 'waypoint_order': [], 'warnings': ['Spoofed directions to avoid calling api.']}]
-
+        self._spoofed = True
     
     @memoize_immutable
     def steps(self) -> List[Step]:
         """Parse api_result and return list of Step-objects contained within."""
+        if self.state == -1:
+            return []
+        if self.state == 1:
+            i = self._estimate['source_stepindex']
+            steps = self._estimate['source_directions'].steps()
+            return [steps[:i]] + [PartialStep(steps[i], self._estimate)]
+        # Use google api. 
         ar = self._get_full_api_result()[0]['legs'][0]
         dura_cum = dist_cum = 0  #duration since start of route, EXCL current step.
         steps = []
@@ -576,420 +482,88 @@ class Directions(Movement):
         return (bbox[0] <= coords[0] <= bbox[2] and
                 bbox[1] <= coords[1] <= bbox[3])        
 
-    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Tuple[float]]:
+    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Dict]:
         """If location 'loca' lies on route, return estimate for cumulative
         distance and duration when reaching the point. Return False otherwise."""
         #Fast check: inside bounding box of directions.
         if not self.within_bbox(loca):
             return False
         #More precise: check per step.
-        for step in self.steps():
-            if (result := step.on_route(loca, max_dist)):
-                return result
+        for i, step in enumerate(self.steps()):
+            if (estimate := step.on_route(loca, max_dist)):
+                estimate['source_stepindex'] = i
+                estimate['source_directions'] = self
+                return estimate
         #Not found on any of the steps.            
         return False   
 
 
 
     
-    
-# class Move:
-    
-#     def __init__(self, start:Location, end:Location, mode:str='walking', 
-#                  duration:float=None, distance:float=None, **gmaps_kwargs):
-#         self._start = start
-#         self._end = end
-#         self._mode = mode
-#         self._duration = duration
-#         self._distance = distance
-#         self._gmaps_kwargs = gmaps_kwargs
-#         self._full_api_result = None #Finding directions: None: to-try, []: failed, [...]: success
+#%%
 
-#     @property
-#     def start(self) -> Location:
-#         """Return start Location."""
-#         return self._start
-        
-#     @property
-#     def end(self) -> Location:
-#         """Return end Location."""
-#         return self._end
-
-#     @property
-#     def mode(self) -> str:
-#         return self._mode
-    
-#     @property
-#     def status(self) -> int:
-#         """0: no information yet. 1: duration and distance only. 2: route also.""" 
-#         if self._full_api_result is not None:
-#             return 2
-#         if self._duration is not None:
-#             return 1
-#         return 0            
-
-#     @property
-#     def distance(self) -> float:
-#         if self._distance is not None:
-#             return self._distance
-#         return self.api_result()['distance']['value']
-    
-#     @property
-#     def duration(self) -> float:
-#         if self._duration is not None:
-#             return self._duration
-#         return self.api_result()['duration']['value']
-    
-#     @property
-#     def crow_distance(self) -> float:
-#         """Distance as-the-crow-flies, in meters."""
-#         return self.start.ll.distanceTo(self.end.ll)
-
-#     @property
-#     def crow_bearing(self) -> float:
-#         """Bearing as-the-crow-flies during movement, in degrees."""
-#         return self.start.ll.initialBearingTo(self.end.ll)
-    
-#     @property
-#     def crow_speed(self) -> float:
-#         """Speed as-the-crow-flies from start to end of this movement, in meters per second."""
-#         if (dura := self.duration) is not None and dura > 0:
-#             return self.crow_distance / dura    
-        
-#     @property  
-#     def distance_factor(self) -> float:
-#         """Ratio between as-the-crow-flies distance and over-the-road distance, 
-#         from origin to end of this movement."""
-#         if (road := self.distance) is not None:
-#             if (crow := self.crow_distance) == 0:
-#                 return 1 #if distance by air == 0, start and end must be same, so no distance.
-#             else:
-#                 return crow / road   
-    
-#     def end_durationcorrected(self, crow_speed:float) -> Location:
-#         """Where end location would be, if cumulative movement had given
-#         (instead of actual) 'crow speed', while keeping its duration. 
-#         Location in same compass direction (bearing) as the original."""
-#         dist, bear = crow_speed * self.duration, self.crow_bearing
-#         return Location.from_latlon(self.start.ll.destination(dist, bear))
-  
-#     def end_distancecorrected(self, distance_factor:float) -> Location:
-#         """Where end location would be, if cumularive movement had given
-#         (instead of actual) 'distance factor', while keeping its (over-the-road-)
-#         distance. Location in same compass direction (bearing) as original."""
-#         dist, bear = distance_factor * self.distance, self.crow_bearing
-#         return Location.from_latlon(self.start.ll.destination(dist, bear))  
-
-#     # Methods using api-calls.
-    
-#     def __get_full_api_result(self) -> str:
-#         """Information about the directions, as object returned by google api."""
-#         if self._full_api_result is None:    #No attempt made to find directions yet.
-#             if self._gmaps is None:
-#                 raise ValueError("A gmaps client is needed; set with 'set_gmaps_client'.")
-#             self._full_api_result = self._gmaps.directions(self.start.coords, 
-#                 self.end.coords, **{'mode': self.mode, **self._gmapsparameters})  # Try to find directions.
-#         if self._full_api_result == []:      #Attempt was made, but unsuccessful.
-#             raise ValueError('No directions from start to end has been found.')
-#         return self._full_api_result         #Attempt was made and successful.
-    
-#     def api_result(self) -> str:    
-#         return self.__get_full_api_result()[0]['legs'][0]
-
-#     @property
-#     def bbox(self) -> Tuple[float]:
-#         """Bounding box of route."""
-#         bounds = self.__get_full_api_result()[0]['bounds']
-#         return (bounds['southwest']['lat'], bounds['southwest']['lng'], 
-#                 bounds['northeast']['lat'], bounds['northeast']['lng'])
-    
-#     @property
-#     def route(self) -> List[Tuple]:
-#         """Return route of movement as list of (lat, lon)-tuples."""
-#         return [p for s in self.steps() for p in s.route]    
-
-#     def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
-#         """If point with 'coords' lies on route, return estimate for cumulative
-#         distance and duration when reaching the point. Return False otherwise."""
-#         #Fast check: inside bounding box of directions.
-#         bbox = self.bbox
-#         if not (bbox[0] <= coords[0] <= bbox[2]
-#             and bbox[1] <= coords[1] <= bbox[3]):
-#             return False
-#         #More precise: check per step.
-#         for step in self.steps():
-#             if (result := step.on_route(coords, max_dist)):
-#                 return result
-#         #Not found on any of the steps.            
-#         return False
-    
-#     @memoize_immutable
-#     def steps(self) -> List[Step]:
-#         """Parse api_result and return list of Step-objects contained within."""
-#         ar = self.api_result()
-#         dura_cum = dist_cum = 0  #duration since start of route, EXCL current step.
-#         steps = []
-#         for ar_step in ar['steps']:
-#             try: #If known, calculate dura_cum from departure times, in order to possible include waiting time.
-#                 dura_cum = ar_step['transit_details']['departure_time']['value'] \
-#                               - ar['departure_time']['value']
-#             except (KeyError, TypeError):
-#                 pass
-#             steps.append(Step(ar_step, dura_cum, dist_cum, self.start))
-#             dura_cum += ar_step['duration']['value']
-#             dist_cum += ar_step['distance']['value']
-#         #...then, make sure the entire route (across steps) is gapless...   
-#         for s0, s1 in zip(steps[:-1], steps[1:]):
-#             if not np.isclose(s0.end.coords, strt:=s1.routestart.coords, atol=1e-5).all():
-#                 s0.extend_route(strt)
-#         #...finally: only steps with actual routes.
-#         return [s for s in steps if len(s.route)>1]
-    
-    
-# class Hop(Movement1):
-#     """
-#     Type of Movement that has very limited information about getting from start to end:
-#     * duration, distance - across all transportation means;
-#     * no route.
-#     """
-    
-#     def __init__(self, start:Location, end:Location, distance, duration):
-#         self._start = start
-#         self._routestart = None
-#         self._end = end
-#         self._distance = distance
-#         self._duration = duration
+class Upper:
+    @property
+    def add(self):
+        return self._a + self.b
             
-#     @property
-#     def distance(self) -> float:
-#         return self._distance
-    
-#     @property
-#     def duration(self) -> float:
-#         return self._duration
-    
-#     @property
-#     def on_route(self, coords, max_dist) -> bool:
-#         return False
-    
-    
-# class Step(Movement1):
-#     """
-#     Type of Movement that has partial information about getting from start to end:
-#     * duration, distance - across all transportation means;
-#     * route - for SINGLE transportation means (i.e., last one necessary to reach end).
-#     """
-    
-#     def __init__(self, api_result_step:str, prior_duration:float, prior_distance:float,
-#                  start:Location):
-#         self._api_result_step = api_result_step
-#         self._start = start
-#         self._routestart = Location.from_dict(api_result_step['start_location'])
-#         self._end = Location.from_dict(api_result_step['end_location'])
-#         self._prior_duration = prior_duration
-#         self._prior_distance = prior_distance
-#         lats, lons = zip(*self.route)
-#         self._bbox = (min(lats), min(lons), max(lats), max(lons))
+class Middle(Upper):
+    def __init__(self, a, b):
+        self._a = a
+        self._b = b    
+    @property 
+    def b(self):
+        return self._b
 
-#     def api_result(self) -> str:
-#         """Return the unaltered api-result of this step."""
-#         return self._api_result_step
+class Lower(Middle):
+    def __init__(self, m, f):
+        self.__dict__ = m.__dict__
+        self._f = f
+    @property
+    def b(self):
+        return super().b * self._f
     
-#     @property
-#     def travel_mode(self) -> str:
-#         """Return one of {'WALKING', 'DRIVING', 'BICYCLING', 'TRANSIT'}."""
-#         return self.api_result()['travel_mode']
-#     @property
-#     def vehicletype(self) -> str:
-#         """If travel_mode == 'TRANSIT', return one of {RAIL, METRO_RAIL, SUBWAY, TRAM,
-#         MONORAIL, HEAVY_RAIL, COMMUTER_TRAIN, HIGH_SPEED_TRAIN, LONG_DISTANCE_TRAIN,
-#         BUS, INTERCITY_BUS, TROLLEYBUS, SHARE_TAXI, FERRY, CABLE_CAR, GONDOLA_LIFT,
-#         FUNICULAR, OTHER}. Return None otherwise."""
-#         if self.travel_mode == 'TRANSIT':
-#             return self.api_result()['transit_details']['line']['vehicle']['type'] 
-#     @property
-#     def carrier(self) -> str:
-#         """Return travel_mode (if it is one of {'WALKING', 'BICYCLING', 'DRIVING'}) 
-#         or, if it is 'TRANSIT', return vehicletype.""" 
-#         if (travel_mode := self.travel_mode) != 'TRANSIT':
-#             return travel_mode
-#         else:
-#             return self.vehicletype
-        
-#     @property
-#     def bbox(self) -> Tuple[float]:
-#         """Bounding box of points on route."""
-#         return self._bbox
-    
-#     def extend_route(self, coords) -> None:
-#         self._routeend = coords
-    
-#     @property
-#     def route(self) -> List[Tuple]:
-#         """Route of this movement as list of (lat, lon)-tuples."""
-#         coordlist = [(p['lat'], p['lng']) for p in 
-#                      decode_polyline(self.api_result()['polyline']['points'])]
-#         try:
-#             return coordlist + [self._routeend]
-#         except AttributeError:
-#             return coordlist
-    
-# class Directions(Movement1):
-#     """
-#     Type of Movement that has full information about getting from start to end:
-#     * duration, distance - across all transportation means;
-#     * route - across all transportation means;
-#     * individual Steps.
-#     """
-    
-#     _gmaps = None
-#     @classmethod
-#     def set_gmaps_client(cls, client) -> None:
-#         cls._gmaps = client
-        
-#     def __init__(self, start:Location, end:Location, **gmapsparameters):
-#         self._full_api_result = None #Finding directions: None: to-try, []: failed, [...]: success
-#         self._start = self._routestart = start
-#         self._end = end
-#         self._gmapsparameters = gmapsparameters
-#         self._prior_duration = 0
-#         self._prior_distance = 0
 
-#     def mode(self) -> str:
-#          return self._gmapsparameters['mode'].upper()
+#%%
 
-#     @property 
-#     def travel_modes(self) -> Set[str]:
-#         """Return set of all unique travel modes in these directions."""
-#         return set([s.travel_mode for s in self.steps()])
-#     @property
-#     def vehicletypes(self) -> Set[str]:
-#         """Return set of all unique vehicle types in these directions."""
-#         return set([s.vehicletype for s in self.steps()])
-#     @property
-#     def carriers(self) -> Set[str]:
-#         """Return set of all unique carriers in these directions."""
-#         return set([s.carrier for s in self.steps()])
-        
-#     def spoof(self, spoof:bool=True):
-#         """Make up random api-result with a few steps, so that no api-calls need 
-#         to be made. (debugging purposes only) To undo, set ._full_api_result = None."""
-#         if not spoof: 
-#             self._full_api_result = None
-#             return
-#         lldict = lambda coords: {k: v for k, v in zip(('lat', 'lng'), coords)}
-#         start_coords = np.array(self.start.coords)
-#         end_coords = np.array(self.end.coords)
-#         delta_coords = end_coords - start_coords
-#         stepcount = random.randint(3, 9)
-#         middle_coords = lambda i: start_coords + delta_coords * (i / (stepcount-1) + np.random.normal(0, 0.1, 2))
-#         points = [start_coords] + [middle_coords(i) for i in range(1, stepcount)] + [end_coords]
-#         steps = [[s, e] for s, e in zip(points[:-1], points[1:])]
-#         steps = [{'distance': {'text': '11 m', 'value': 11}, 'duration': {'text': '1 min', 'value': 11},
-#                   'end_location': lldict(e), 'start_location': lldict(s),
-#                   'polyline': {'points': encode_polyline([lldict(s), lldict(e)])},
-#                   'html_instructions': 'Move-it move-it', 'travel_mode': 'WALKING'} for (s, e) in steps]
-#         lats =  [l for s in steps for l in (s['end_location']['lat'], s['start_location']['lat'])]
-#         lngs =  [l for s in steps for l in (s['end_location']['lng'], s['start_location']['lng'])]        
-#         self._full_api_result = [
-#             {'bounds': {'northeast': {'lat': max(lats), 'lng': max(lngs)},
-#                         'southwest': {'lat': min(lats), 'lng': min(lngs)}},
-#              'copyrights': '11 monkeys',
-#              'legs': [
-#                  {'distance': {'text': '11 km', 'value': 11111 + np.random.normal(0, 1000)}, 'duration': {'text': '11 mins', 'value': 11 + np.random.normal(0,1)},
-#                   'end_location': steps[-1]['end_location'], 'start_location': steps[0]['start_location'],      
-#                   'steps': steps,
-#                   'traffic_speed_entry': [], 'via_waypoint': []}],
-#              'overview_polyline': {'points': encode_polyline([steps[0]['start_location']] + [s['end_location'] for s in steps])},
-#              'summary': 'Summary111', 'waypoint_order': [], 'warnings': ['Spoofed directions to avoid calling api.']}]
-    
-#     def __get_full_api_result(self) -> str:
-#         """Information about the directions, as object returned by google api."""
-#         if self._full_api_result is None:    #No attempt made to find directions yet.
-#             if self._gmaps is None:
-#                 raise ValueError("A gmaps client is needed; set with 'set_gmaps_client'.")
-#             self._full_api_result = self._gmaps.directions(self.start.coords, 
-#                                     self.end.coords, **self._gmapsparameters)  # Try to find directions.
-#         if not self._full_api_result:        #Attempt was made, but unsuccessful.
-#             return None
-#         else:                                #Attempt was made and successful.
-#             return self._full_api_result
-    
-#     def api_result(self) -> str:    
-#         return self.__get_full_api_result()[0]['legs'][0]
- 
-#     @property
-#     def bbox(self) -> Tuple[float]:
-#         """Bounding box of points in route."""
-#         bounds = self.__get_full_api_result()[0]['bounds']
-#         return (bounds['southwest']['lat'], bounds['southwest']['lng'], 
-#                 bounds['northeast']['lat'], bounds['northeast']['lng'])
-    
-#     @property
-#     def route(self) -> List[Tuple]:
-#         """Return route of movement as list of (lat, lon)-tuples."""
-#         return [p for s in self.steps() for p in s.route]    
-#         coordlist = [p for s in self.steps() for p in s.route] #TODO:delete    
-#         if len(coordlist) > 1: #don't return route if it has only one point
-#             return coordlist
-#         else:
-#             return [self.start.coords, self.start.coords]
+class Step1:
+    """
+    Type of Movement with partial information about getting from start to end:
+    * .distance and .duration apply to the whole movement from start;
+    * All other properties (.travel_mode, .vehicletype, .carrier, .bbox, .route)
+      apply to SINGLE step (i.e., last one necessary to reach end, starting at
+      .routestart).
+    """ 
 
-#     #Overwrite original method in Movement class for something better.
-#     def on_route(self, coords, max_dist:float=10) -> Union[bool, Tuple[float]]:
-#         """If point with 'coords' lies on route, return estimate for cumulative
-#         distance and duration when reaching the point. Return False otherwise."""
-#         #Fast check: inside bounding box of directions.
-#         bbox = self.bbox
-#         if not (bbox[0] <= coords[0] <= bbox[2]
-#             and bbox[1] <= coords[1] <= bbox[3]):
-#             return False
-#         #More precise: check per step.
-#         for step in self.steps():
-#             if (result := step.on_route(coords, max_dist)):
-#                 return result
-#         #Not found on any of the steps.            
-#         return False
-    
-#     @memoize_immutable
-#     def steps(self) -> List[Step]:
-#         """Parse api_result and return list of Step-objects contained within."""
-#         ar = self.api_result()
-#         dura_cum = dist_cum = 0  #duration since start of route, EXCL current step.
-#         steps = []
-#         for ar_step in ar['steps']:
-#             try: #If known, calculate dura_cum from departure times, in order to possible include waiting time.
-#                 dura_cum = ar_step['transit_details']['departure_time']['value'] \
-#                               - ar['departure_time']['value']
-#             except (KeyError, TypeError):
-#                 pass
-#             steps.append(Step(ar_step, dura_cum, dist_cum, self.start))
-#             dura_cum += ar_step['duration']['value']
-#             dist_cum += ar_step['distance']['value']
-#         #...then, make sure the entire route (across steps) is gapless...   
-#         for s0, s1 in zip(steps[:-1], steps[1:]):
-#             if not np.isclose(s0.end.coords, strt:=s1.routestart.coords, atol=1e-5).all():
-#                 s0.extend_route(strt)
-#         #...finally: only steps with actual routes.
-#         return [s for s in steps if len(s.route)>1]
+    def __init__(self):
+        self._prior_duration = 100
+        self._prior_distance = 100
+        self._dist = 80
+        self._dur = 80
 
 
-def compatibility_vehicletype_transittype(vehicletype, transittype) -> bool:
-    """Evaluates compatibility of vehicle type, used in a section (step) of a
-    directions object, with transit type of a location."""
-    if vehicletype is None: 
-        #Step is not using public transport, so any location on the route can be reached.
-        return True
-    if vehicletype.upper() in ('BUS', 'TROLLEYBUS') \
-        and transittype.lower() == 'bus':
-        return True
-    if vehicletype.upper() in ('RAIL', 'METRO_RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 
-        'HEAVY_RAIL', 'COMMUTER_TRAIN', 'LONG_DISTANCE_TRAIN', 'HIGH_SPEED_TRAIN') \
-        and transittype.lower() == 'rail':
-        return True
-    return False
+    def distance_to_midpoint(self, fraction:float=1) -> float:
+        """Distance over-the-road, in meters. Measured from start. 'fraction' 
+        == 0 (to routestart), 1 (to end), 0..1 (in between, estimated)."""
+        return self._prior_distance + fraction * self._dist
+    distance = property(
+        lambda self: self.distance_to_midpoint(1),
+        doc="Distance over-the-road, from start to end, in meters.")
+    distance_routeonly = property(
+        lambda self: self.distance_to_midpoint(1) - self.distance_to_midpoint(0),
+        doc="Distance over-the-road, from routestart to end, in meters.")
     
     
+class PartialStep1(Step1):
+    """Partial Step, i.e., step (as returned by the Directions object) but with
+    an arbitrary (new) end point along its route."""
+    def __init__(self, step:Step1, f):
+        self.__dict__ = step.__dict__
+        self._f = f
     
-            
-            
+    def distance_to_midpoint(self, fraction:float=1) -> float:
+        f = fraction * self._f #Fraction along entire (instead of partial) step
+        return super().distance_to_midpoint(f)
+    def duration_to_midpoint(self, fraction:float=1) -> float:
+        f = fraction * self._f #Fraction along entire (instead of partial) step
+        return super().duration_to_midpoint(f)

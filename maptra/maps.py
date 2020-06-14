@@ -75,7 +75,8 @@ class Map:
         self._start = start
         self._gmapsparameters = {'mode': mode, **kwargs}
         self._filepath = None
-        self._df = pd.DataFrame(columns=['location', 'directions']) #Dataframe with all 'location' and 'directions' objects.
+        #self._df = pd.DataFrame(columns=['location', 'directions']) #Dataframe with all 'location' and 'directions' objects.
+        self._directions = pd.Series(name='directions')
 
     #Save and load pickle to file.
         
@@ -119,57 +120,77 @@ class Map:
         locas_toadd = []
         already = notyet = 0
         for loca in locas:
-            found = False
-            if not self._df.empty: 
-                mask_same = self._df['location'].apply(lambda l: np.allclose(l.coords, loca.coords))
-                if mask_same.any():
-                    found = True
+            for d in self._directions:
+                if np.allclose(loca.coords, d.end.coords):
                     already += 1
-            if not found:
+                    break
+            else:
                 locas_toadd.append(loca)
                 notyet += 1
         print(f"{already} locations found in archive; {notyet} locations are new.")
         #Add those which aren't there yet.
-        if notyet:
-            idx0 = 0 if self._df.empty else self._df.index.max() + 1
-            data = [{'location': loca, 'directions': self.__Directions(loca)} for loca in locas_toadd]
-            df_toadd = pd.DataFrame(data, index=range(idx0, idx0+len(data)))
-            self._df = self._df.append(df_toadd)
+        if locas_toadd:
+            s_toadd = pd.Series([self.__Directions(loca) for loca in locas_toadd])
+            self._directions = self._directions.append(s_toadd, ignore_index=True)
     
     def __Directions(self, end:Location) -> Directions:
         """Return Directions object to end location, with all other
         parameters taken from standard class variables."""
         return Directions(self._start, end, **self._gmapsparameters)
+    
+    def directions_all(self, *states) -> pd.Series:
+        """Return series with directions without making api-calls. Specify
+        states to get subset of directions having one of those states."""
+        if states == []: 
+            return self._directions
+        mask = self._directions.apply(lambda d: d.state in states)
+        return self._directions[mask]
+    @property 
+    def directions(self) -> pd.Series:
+        """Return series with directions that a route has been found to. (NB:
+        possibly forces many api-calls if these haven't been made yet.)"""
+        self.make_apicalls()
+        mask = self._directions.apply(lambda d: d.state > -1)
+        return self._directions[mask]
 
-    def spoof(self, do_spoof:bool=True):
+    # Get results.
+    
+    def make_apicalls(self, do_estimate:bool=True):
+        """Make all API-calls at once (instead of later, once they are needed).
+        Makes it possible to estimate the distance and duration of some direc-
+        tions (when their end location happens to be on the route), use 
+        'do_estimate' = False to disable."""
+        while True:
+            s = self.directions_all(0)
+            if not len(s): #All done
+                break
+            # Find the furthest location of which distance and duration are unknown.
+            i = s.apply(lambda d: d.crow_distance).idxmax()
+            d = s.loc[i]
+            _ = d._get_full_api_result() #Force API-call
+            # See if estimate for other directions can be derived from this one.
+            if do_estimate:
+                for d2 in self.directions_all(0, 1):
+                    d2.check_estimate(d)
+        states = np.array([d.state for d in self.directions_all()])
+        total = len(states)
+        failed = len(states == -1)
+        called = sum(states == 2)
+        print(f'Made total of {called} api-calls for {total} directions ' + 
+              f'(reduction of {1-called/total:.0%}).')
+
+    def spoof_apicalls(self, do_spoof:bool=True):
         """Make up random directions to each location, so that no api-calls need to 
         be made. (debugging purposes only) """
-        for d in self._df['directions']:
-            d.spoof(do_spoof)
-
-    @property
-    def df(self) -> pd.DataFrame:
-        """Return dataframe with locations and directions."""
-        return self._df
-    @property 
-    def df_success(self):
-        """Return dataframe with locations and directions, but with only those 
-        that a route has been found to."""
-        mask = self.df['directions'].apply(lambda x: bool(x.route))
-        return self.df[mask]
-    @property 
-    def df_failure(self):
-        """Return dataframe with locations and directions, but with only those 
-        that a route has NOT been found to."""
-        mask = self.df['directions'].apply(lambda x: not bool(x.route))
-        return self.df[mask]
-    
+        for d in self.directions_all(0, 2):
+            d.spoof_apicall(do_spoof)   
+            
     #Routes and Modes.
     
     def __route_forest_structure(self) -> ForestStruct:
         fs = ForestStruct()
-        paths = [d.route for d in self.df['directions']]
-        fs.add_path(*paths)
+        paths = [d.route for d in self.directions]
+        fs.add_paths(*paths)
         return fs
     @property 
     def route_forest(self) -> List:
@@ -187,13 +208,13 @@ class Map:
     
     def __carriers_forest_structure(self) -> Dict[str, ForestStruct]:
         carrier_paths = {}
-        for d in self.df['directions']:
+        for d in self.directions:
             for step in d.steps():
                 carrier_paths.setdefault(step.carrier, []).append(step.route)
         carrier_fs = {}
         for carrier, paths in carrier_paths.items():
             fs = ForestStruct()
-            fs.add_path(*paths)
+            fs.add_paths(*paths)
             carrier_fs[carrier] = fs
         return carrier_fs
     @property
@@ -212,19 +233,14 @@ class Map:
     @property
     def carriers(self) -> Set[str]:
         """Return set of all unique transport carriers in this map's directions."""
-        return set([c for d in self.df['directions'] for c in d.carriers()])
+        return set([c for d in self.directions for c in d.carriers()])
 
     # Movements        
     
-    # def directions(self, min_dist=40) -> List[Directions]:
-    #     data = []
-    #     s_dirs = self.df['directions']
-    #     s_ends = s_dirs.apply(lambda d: d.end)
-        
     def steps(self, min_dist = 40) -> pd.Series:
         """Returns individual steps of all directions in map, if route_distance
         of the step is at least 'min_dist'."""
-        s_dirs = self.df_success['directions']
+        s_dirs = self.directions_all(0, 1, 2)
         df = pd.DataFrame({'step': [step for steps in s_dirs.apply(lambda d: d.steps())
                                    for step in steps]})
         # Remove steps with duplicate end point.
@@ -234,45 +250,3 @@ class Map:
         df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
         mask = (df.routedist > min_dist)
         return df.step[mask]
-
-
-    
-class CheapMap(Map):
-    """Like Map but designed to minimize the number of API-calls."""
-    
-    def make_apicalls(self):
-        """Make API-calls and estimate the distance and duration to other 
-        locations that happen to be on the route."""
-        while True:
-            mask = self.df['directions'].apply(lambda d: d.state == 0)
-            df = self.df[mask]
-            if not len(df): #All done
-                break
-            # Find the furthest location of which distance and duration are unknown.
-            i = df['directions'].apply(lambda d: d.crow_distance).idxmax()
-            d = df.loc[i, 'directions']
-            _ = d._get_full_api_result() #Force API-call
-            # See if any locations are on this route.
-            for d2 in self.df['directions']:
-                print(d2.check_estimate(d))
-        states = np.array([d.state for d in self.df['directions']])
-        total = len(states)
-        called = sum(states == 2)
-        print(f'Made {called} api-calls for {total} locations (reduction of' +
-              f' {1-called/total:.0%}).')
-        
-    def steps(self, min_dist = 40) -> pd.Series:
-        """Returns individual steps of all directions in map, if route_distance
-        of the step is at least 'min_dist'."""
-        s_dirs = self.df_success['directions']
-        df = pd.DataFrame({'step': [step for steps in s_dirs.apply(lambda d: d.steps())
-                                   for step in steps]})
-        # Remove steps with duplicate end point.
-        df['coords'] = df.step.apply(lambda s: s.end.coords)
-        df.drop_duplicates('coords', inplace=True)
-        # Remove steps with too small route distance.
-        df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
-        mask = (df.routedist > min_dist)
-        return df.step[mask]
-    
-    
