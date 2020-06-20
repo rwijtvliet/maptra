@@ -9,27 +9,43 @@ the central station.
 
 # %% Create map.
 
-from maptra import Map, Location
+from maptra import MultiMap, Location
 import maptra.locations as ml
 import numpy as np
+from datetime import date, time, datetime, timedelta
+from typing import Union
 
 with open('apikey.txt') as f:
     apikey = f.read().strip()
-    Map.set_gmaps_api_key(apikey)
+    MultiMap.set_gmaps_api_key(apikey)
 
 # Create.
-# m = Map.from_address('Hauptbahnhof, hamburg', 'transit')
-m = Map.from_coords((53.552998, 10.006624), 'transit')
-locas = ml.railstops(m.start, [1000])
-m.add_locations(locas)
-locas = ml.busstops(m.start, [500], 100)
-m.add_locations(locas)
-m.make_apicalls()
+def nextWeekdayAt(ref:Union[datetime, date]=None, isoweekday:int=1, 
+                  oclock:Union[time,int]=time(0)) -> datetime:
+    """Return datetime with first 'isoweekday' (1=Monday, 7=Sunday) after 'ref'
+    date, at 'oclock' time."""
+    if ref is None:
+        ref = date.today()
+    if isinstance(ref, datetime):
+        ref = ref.date()
+    if isinstance(oclock, int):
+        oclock = time(oclock)
+    return datetime.combine(ref + timedelta(days=(isoweekday-ref.isoweekday()-1)%7+1), oclock)
+nextMonday0900 = nextWeekdayAt(isoweekday=1, oclock=9)
+
+start = Location((53.552998, 10.006624)) # Hamburg Hbf
+mumap = MultiMap(start, ['transit', 'bicycling', 'driving'], departure_time=nextMonday0900)
+
+locas = np.append(ml.railstops(start, [800]), ml.busstops(start, [500], 200))
+mumap.add_locations(locas)
+mumap.to_pickle(f"pickle/hamburg-multimap.pkl")
+mumap.make_apicalls()
+print(mumap.apistats)
 
 # Save.
 # m.to_pickle("pickle/hamburg_transitlocations.pkl")
 # Load
-# m = Map.from_pickle("pickle/hamburg_transit_5000_10000.pkl")
+# m = Map.from_pickle("pickle/hamburg_transitlocations.pkl")
 
 
 
@@ -40,6 +56,8 @@ m.make_apicalls()
 
 from maptra import Visualization
 import geopandas as gpd
+
+m = mumap.maps['bicycling']
 
 viz = Visualization(m)# 'EPSG:25832') #) #, 'epsg:4326')#, 
 
@@ -73,8 +91,8 @@ viz.add_background_fromfile(base_path + 'water_a.shp', color='lightblue', alpha=
 
 
 # Content: 
-viz.add_voronoi('duration', 0.05, alpha=0.7)
-viz.add_lines(alpha=0.2, minimum_width=0.7)
+viz.add_voronoi('speed', alpha=0.4)
+viz.add_lines(alpha=0.2, minimum_width=2)
 viz.add_startpoint(alpha=1, color='blue', markersize=90)
 viz.add_endpoints(marker='o', color='black', markersize=10)
 # viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',

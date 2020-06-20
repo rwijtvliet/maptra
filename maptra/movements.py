@@ -237,7 +237,7 @@ class Step(Movement):
         return (bbox[0] <= coords[0] <= bbox[2] and
                 bbox[1] <= coords[1] <= bbox[3])
     
-    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Dict]:
+    def on_route(self, loca:Location, max_dist:float=25) -> Union[bool, Dict]:
         """If location 'loca' lies on route (i.e., has a distance below 
         'max_dist' to a point on the route), return dictionary with estimate for 
         cumulative distance ('distance') and duration ('duration') when reaching 
@@ -357,7 +357,7 @@ class Directions(Movement):
                 estimate['vehicletype'],
                 getattr(self.end, 'transittype', None)):
             return False # on route, but route passes in incorrect vehicle
-        if self._estimate is not None and self._estimate['nearest_anchor'] < estimate('nearest_anchor'):
+        if self._estimate is not None and self._estimate['nearest_anchor'] < estimate['nearest_anchor']:
             return False # estimate worse than currently present estimate
         self._estimate = estimate
         return True
@@ -434,7 +434,7 @@ class Directions(Movement):
         if self.state == 1:
             i = self._estimate['source_stepindex']
             steps = self._estimate['source_directions'].steps()
-            return [steps[:i]] + [PartialStep(steps[i], self._estimate)]
+            return steps[:i] + [PartialStep(steps[i], self._estimate)]
         # Use google api. 
         ar = self._get_full_api_result()[0]['legs'][0]
         dura_cum = dist_cum = 0  #duration since start of route, EXCL current step.
@@ -482,7 +482,7 @@ class Directions(Movement):
         return (bbox[0] <= coords[0] <= bbox[2] and
                 bbox[1] <= coords[1] <= bbox[3])        
 
-    def on_route(self, loca:Location, max_dist:float=10) -> Union[bool, Dict]:
+    def on_route(self, loca:Location, max_dist:float=25) -> Union[bool, Dict]:
         """If location 'loca' lies on route, return estimate for cumulative
         distance and duration when reaching the point. Return False otherwise."""
         #Fast check: inside bounding box of directions.
@@ -497,7 +497,20 @@ class Directions(Movement):
         #Not found on any of the steps.            
         return False   
 
-
+def compatibility_vehicletype_transittype(vehicletype, transittype) -> bool:
+    """Evaluates compatibility of vehicle type, used in a section (step) of a
+    directions object, with transit type of a location."""
+    if vehicletype is None: 
+        #Step is not using public transport, so any location on the route can be reached.
+        return True
+    if vehicletype.upper() in ('BUS', 'TROLLEYBUS') \
+        and transittype.lower() == 'bus':
+        return True
+    if vehicletype.upper() in ('RAIL', 'METRO_RAIL', 'SUBWAY', 'TRAM', 'MONORAIL', 
+        'HEAVY_RAIL', 'COMMUTER_TRAIN', 'LONG_DISTANCE_TRAIN', 'HIGH_SPEED_TRAIN') \
+        and transittype.lower() == 'rail':
+        return True
+    return False
 
     
 #%%

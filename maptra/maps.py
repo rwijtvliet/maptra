@@ -40,7 +40,7 @@ class Map:
         Location.set_gmaps_client(client)
         Directions.set_gmaps_client(client)
         
-    #Instance initialization.
+    # Instance initialization.
     
     @classmethod    
     def from_coords(cls, start_coords:Iterable, mode:str='walking', **kwargs):
@@ -68,17 +68,16 @@ class Map:
         Locations are taken from it; transport parameters are supplied in-
         dividually for this new instance."""
         instance = cls(mapp.start, mode, **kwargs)
-        instance.add_locations(mapp._df['location'])
+        instance.add_locations(mapp.directions_all().apply(lambda d: d.end))
         return instance
 
     def __init__(self, start:Location, mode:str='walking', **kwargs):
         self._start = start
         self._gmapsparameters = {'mode': mode, **kwargs}
         self._filepath = None
-        #self._df = pd.DataFrame(columns=['location', 'directions']) #Dataframe with all 'location' and 'directions' objects.
         self._directions = pd.Series(name='directions')
 
-    #Save and load pickle to file.
+    # Save and load pickle to file.
         
     @property 
     def filepath(self) -> str:
@@ -101,7 +100,7 @@ class Map:
         if self._filepath is not None:
             self.to_pickle()
     
-    #Manipulating Locations and Directions.
+    # Manipulating Locations and Directions.
     
     @property
     def start(self) -> Location:
@@ -110,9 +109,9 @@ class Map:
     
     def add_locations(self, locas:Iterable[Location]) -> None:
         """Add locations to the map."""
-        self.__add_locas_to_df(locas)
+        self.__add_locas(locas)
 
-    def __add_locas_to_df(self, locas:Iterable[Location]) -> None:
+    def __add_locas(self, locas:Iterable[Location]) -> None:
         """In list of locations, first check if they can be replaced by any that
         are already in the archive, to save on api-calls. If not, add them to 
         the archive."""
@@ -120,7 +119,7 @@ class Map:
         locas_toadd = []
         already = notyet = 0
         for loca in locas:
-            for d in self._directions:
+            for d in self.directions_all():
                 if np.allclose(loca.coords, d.end.coords):
                     already += 1
                     break
@@ -130,21 +129,18 @@ class Map:
         print(f"{already} locations found in archive; {notyet} locations are new.")
         #Add those which aren't there yet.
         if locas_toadd:
-            s_toadd = pd.Series([self.__Directions(loca) for loca in locas_toadd])
-            self._directions = self._directions.append(s_toadd, ignore_index=True)
-    
-    def __Directions(self, end:Location) -> Directions:
-        """Return Directions object to end location, with all other
-        parameters taken from standard class variables."""
-        return Directions(self._start, end, **self._gmapsparameters)
+            s = pd.Series([Directions(self.start, loca, **self._gmapsparameters)
+                           for loca in locas_toadd])
+            self._directions = self._directions.append(s, ignore_index=True)
     
     def directions_all(self, *states) -> pd.Series:
         """Return series with directions without making api-calls. Specify
         states to get subset of directions having one of those states."""
-        if states == []: 
+        if not states:
             return self._directions
-        mask = self._directions.apply(lambda d: d.state in states)
-        return self._directions[mask]
+        else:
+            mask = self._directions.apply(lambda d: d.state in states)
+            return self._directions[mask]
     @property 
     def directions(self) -> pd.Series:
         """Return series with directions that a route has been found to. (NB:
@@ -172,12 +168,20 @@ class Map:
             if do_estimate:
                 for d2 in self.directions_all(0, 1):
                     d2.check_estimate(d)
+    @property
+    def apistats(self):
+        """Return short stats on api-calls."""
         states = np.array([d.state for d in self.directions_all()])
         total = len(states)
-        failed = len(states == -1)
-        called = sum(states == 2)
-        print(f'Made total of {called} api-calls for {total} directions ' + 
-              f'(reduction of {1-called/total:.0%}).')
+        fail = sum(states == -1)
+        success = sum(states > 0)
+        est = sum(states == 1)
+        return f'Number of directions: {total}\n' \
+            + f'. Succeeded:   {success}\n' \
+            + f'. . Called:    {success-est}\n' \
+            + f'. . Estimated: {est} ({est/success:.0%})\n' \
+            + f'. Failure:     {fail}\n' \
+            + f'. Still open:  {total-success-fail}'
 
     def spoof_apicalls(self, do_spoof:bool=True):
         """Make up random directions to each location, so that no api-calls need to 
@@ -185,7 +189,7 @@ class Map:
         for d in self.directions_all(0, 2):
             d.spoof_apicall(do_spoof)   
             
-    #Routes and Modes.
+    # Routes and Modes.
     
     def __route_forest_structure(self) -> ForestStruct:
         fs = ForestStruct()
@@ -235,7 +239,7 @@ class Map:
         """Return set of all unique transport carriers in this map's directions."""
         return set([c for d in self.directions for c in d.carriers()])
 
-    # Movements        
+    # Movements. 
     
     def steps(self, min_dist = 40) -> pd.Series:
         """Returns individual steps of all directions in map, if route_distance
@@ -250,3 +254,108 @@ class Map:
         df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
         mask = (df.routedist > min_dist)
         return df.step[mask]
+    
+class MultiMap:
+    
+        
+    @staticmethod
+    def set_gmaps_api_key(apikey:str) -> None :
+        """Set the api key and create the gmaps client used for the geocoding."""
+        client = googlemaps.Client(key=apikey)
+        Location.set_gmaps_client(client)
+        Directions.set_gmaps_client(client)
+        
+    # Instance initialization.
+    
+    @classmethod    
+    def from_coords(cls, start_coords:Iterable, 
+                    modes:List[str]=['transit', 'driving'], **kwargs):
+        """Create instance of MultiMap, with start location as a (lat, lon)-Tuple."""
+        start = Location(start_coords)
+        return cls(start, modes, **kwargs)
+        
+    @classmethod    
+    def from_address(cls, start_address:str, 
+                     modes:List[str]=['transit', 'driving'], **kwargs):
+        """Create instance of MultiMap, with start location as an address string."""
+        start = Location.from_address(start_address)
+        return cls(start, modes, **kwargs)
+    
+    @classmethod
+    def from_pickle(cls, filepath:str):
+        """Create instance of MultiMap, from a pickled class dictionary."""
+        with open(filepath, 'rb') as f:
+            instance = pickle.load(f)
+            instance.__dict__['_filepath'] = filepath #File might have been moved since it was pickled.
+        return instance
+
+    @classmethod
+    def from_map(cls, mapp, 
+                 modes:List[str]=['transit', 'driving'], **kwargs):
+        """Create instance of MultiMap, from an instance of Map. Start and 
+        Locations are taken from it; transport parameters are supplied in-
+        dividually for this new instance."""
+        instance = cls(mapp.start, modes, **kwargs)
+        instance.add_locations(mapp.directions_all().apply(lambda d: d.end))
+        return instance
+    
+    def __init__(self, start:Location, modes:List[str]=['transit', 'driving'], **kwargs):
+        self._start = start
+        self._gmapsparameters = kwargs
+        self._modes = modes
+        self._maps = {mode: Map(start, mode, **kwargs) for mode in modes}
+        
+    # Save and load pickle to file.
+        
+    @property 
+    def filepath(self) -> str:
+        """Return path of file that object was stored to, during the previous save."""
+        return self._filepath
+    def to_pickle(self, filepath:str=None, *, ignore_err=True) -> Union[bool,str]:
+        """Save object to provided path, if specified. If not specified, save
+        to path that was used during previous save. Returns file path."""
+        if filepath is not None:
+            self._filepath = filepath            
+        if self._filepath is None:
+            if not ignore_err:
+                raise ValueError("No file path has been set for the pickle file.")
+            else:
+                return False
+        with open(self._filepath, 'wb') as f:  
+            pickle.dump(self, f)
+        return filepath
+    def save(self) -> None:
+        if self._filepath is not None:
+            self.to_pickle()
+           
+    # Manipulating Locations and Maps.
+     
+    @property
+    def start(self) -> Location:
+        """Return Location object for central point in the map."""
+        return self._start
+    
+    def add_locations(self, locas:Iterable[Location]) -> None:
+        """Add locations to the map."""
+        for ma in self._maps.values():
+            ma.add_locations(locas)
+
+    @property
+    def maps(self):
+        return self._maps
+    
+    # Get results.
+    
+    def make_apicalls(self, do_estimate:bool=True):
+        for ma in self._maps.values():
+            ma.make_apicalls(do_estimate)
+            
+    @property
+    def apistats(self):
+        return "\n".join([f'{mo}:\n{ma.apistats}' for mo, ma in self._maps.items()])
+    
+    def spoof_apicalls(self, do_spoof:bool=True):
+        for ma in self._maps.values():
+            ma.spoof_apicalls(do_spoof)
+            
+    

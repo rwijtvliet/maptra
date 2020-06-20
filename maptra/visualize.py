@@ -35,8 +35,7 @@ Sources of ESRI Shappe files for the background map:
 
 from maptra.locations import Location
 import maptra.locations as ml
-from maptra.movements import Directions
-from maptra.maps import Map
+from maptra.maps import Map, MultiMap
 import os
 import numpy as np
 import pandas as pd
@@ -285,7 +284,7 @@ class Visualization:
         ax.quiver(df_quiv['x'], df_quiv['y'], df_quiv['u'], df_quiv['v'], df_quiv['c'], angles='xy', 
                   scale_units='xy', scale=1, **{'cmap':cmap, 'width': width, **kwargs})
     
-    def add_voronoi(self, show:str='duration', inter:bool=True, detach=0,
+    def add_voronoi(self, show:str='duration', inter:bool=False, detach=0,
                     *, cmap:str=None, alpha:float=0.5, **kwargs) -> None:
         """Add colored (voronoi) cells to figure, coloring the area around a 
         location. If inter==True (default), also color the area around inter-
@@ -363,7 +362,7 @@ class Visualization:
         kwargs = {'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs}
         gdf.plot(ax=ax, **kwargs)
     
-    def add_endpoints(self, asfound:bool=True, inter:bool=False,
+    def add_endpoints(self, asfound:bool=False, inter:bool=False,
                       *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
         """Add end locations to figure. Locations that no route has been found to
         are excluded. If asfound==False, put marker at specified location. If 
