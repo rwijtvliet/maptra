@@ -12,7 +12,7 @@ Location and Directions objects from them.
 from maptra import Location, Directions, Map
 import pandas as pd
 
-m = Map.from_pickle("pickle/hamburg_walking_1000_10000.pkl")
+m = Map.from_pickle("pickle/hamburg_walking_1000_10001.pkl")
 
 locas = m.df.location
 dirs = []
@@ -22,5 +22,5 @@ for d in m.df.directions:
     dirs.append(dire)
 
 m2 = Map.from_map(m)
-m2._df = pd.DataFrame({'location': locas, 'directions':dirs})
+m2._directions = p.DataFrame({'location': locas, 'directions':dirs})
 m2.to_pickle('pickle/hamburg_walking_1000_10002.pkl')

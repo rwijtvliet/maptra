@@ -14,6 +14,7 @@ on the map can be reached.
 from maptra.locations import Location
 from maptra.movements import Directions
 from maptra.forest import ForestStruct
+# from maptra.visualize import MapViz, MultimapViz
 
 from typing import Iterable, List, Tuple, Dict, Set, Union, Callable
 import numpy as np
@@ -107,8 +108,8 @@ class Map:
         """Return Location object for central point in the map."""
         return self._start
     
-    def add_locations(self, locas:Iterable[Location]) -> None:
-        """Add locations to the map."""
+    def add_ends(self, locas:Iterable[Location]) -> None:
+        """Add locations to the map as end points."""
         self.__add_locas(locas)
 
     def __add_locas(self, locas:Iterable[Location]) -> None:
@@ -119,8 +120,8 @@ class Map:
         locas_toadd = []
         already = notyet = 0
         for loca in locas:
-            for d in self.directions_all():
-                if np.allclose(loca.coords, d.end.coords):
+            for l in np.concatenate((self.ends, [self.start])):
+                if np.allclose(loca.coords, l.coords):
                     already += 1
                     break
             else:
@@ -148,6 +149,11 @@ class Map:
         self.make_apicalls()
         mask = self._directions.apply(lambda d: d.state > -1)
         return self._directions[mask]
+    
+    @property
+    def ends(self) -> pd.Series:
+        """Return series with end locations (no api-calls are made)."""
+        return self._directions.apply(lambda d: d.end)
 
     # Get results.
     
@@ -241,21 +247,21 @@ class Map:
 
     # Movements. 
     
-    def steps(self, min_dist = 40) -> pd.Series:
+    def steps(self, min_dist:float=0) -> pd.Series:
         """Returns individual steps of all directions in map, if route_distance
         of the step is at least 'min_dist'."""
-        s_dirs = self.directions_all(0, 1, 2)
-        df = pd.DataFrame({'step': [step for steps in s_dirs.apply(lambda d: d.steps())
-                                   for step in steps]})
-        # Remove steps with duplicate end point.
-        df['coords'] = df.step.apply(lambda s: s.end.coords)
-        df.drop_duplicates('coords', inplace=True)
+        df = pd.DataFrame({'step': [step for steps in self.directions.apply(
+            lambda d: d.steps()) for step in steps]})
         # Remove steps with too small route distance.
-        df['routedist'] = df.step.apply(lambda s: s.distance_routeonly)
-        mask = (df.routedist > min_dist)
-        return df.step[mask]
-    
-class MultiMap:
+        mask = (df['step'].apply(lambda s: s.distance_routeonly) > min_dist)
+        df = df[mask]
+        # Remove steps with duplicate end point.
+        df['coords'] = df['step'].apply(lambda s: s.end.coords)
+        df.drop_duplicates('coords', inplace=True)
+        return df['step']
+
+
+class Multimap:
     
         
     @staticmethod
@@ -335,10 +341,15 @@ class MultiMap:
         """Return Location object for central point in the map."""
         return self._start
     
-    def add_locations(self, locas:Iterable[Location]) -> None:
-        """Add locations to the map."""
+    def add_ends(self, locas:Iterable[Location]) -> None:
+        """Add locations to the map as end points."""
         for ma in self._maps.values():
-            ma.add_locations(locas)
+            ma.add_ends(locas)
+            
+    @property
+    def ends(self) -> pd.Series:
+        # Return the end points from any of the maps, as they are all the same.
+        return next(iter(self._maps.values()))._directions.apply(lambda d: d.end)
 
     @property
     def maps(self):

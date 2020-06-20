@@ -35,7 +35,7 @@ Sources of ESRI Shappe files for the background map:
 
 from maptra.locations import Location
 import maptra.locations as ml
-from maptra.maps import Map, MultiMap
+from maptra.maps import Map, Multimap
 import os
 import numpy as np
 import pandas as pd
@@ -77,26 +77,22 @@ class Styles:
 
 CRS_LONLAT = 'epsg:4326'
 
-class Visualization:
-    """Class to visualize the data (locations, directions) in a Map object.
+class _BaseViz:
+    """
+    Parent class for visualisation.
     
-    mapp: prepared Map object.
-    crs: which coordinate reference system the data must be displayed in.
-    clipping_margin: 'breathing room' between the locations and the figure borders, expressed
-        as fraction of the height/width the locations take up. Used to discard
-        elements outside the view port. Make this value as large as you think 
-        you'll conceivably use, but no larger. When actually displayng the figure, 
-        a smaller margin can be used."""    
+    In order to use without overriding any methods or attributes, descendent 
+    classes must implement following attributes or property methods (setter not
+    required):
+        ._crs (str) (before calling __init__ method of this class)
+        .start (Location)
+
+    Additionally, child classes can override any properties/methods of this class.
+    """
     
-    def __init__(self, mapp:Map, crs:str='epsg:3395', clipping_margin:float=1):
-        self._map = mapp
-        self._crs = pyproj.CRS(crs)
+    def __init__(self, gdf, clipping_margin):
         self._fig = self._ax = None
-        self._data = {} #To save data of calculations. Unclear if needed; TODO: remove if not needed.
-        
-        #Use all locations on the map to calculate some initial things.
-        gdf = GeoDataFrame(geometry=[d.end.point for d in self._map.directions], 
-                           crs=CRS_LONLAT)
+       
         #Check: locations inside area-of-use of crs.
         outside_aou = (~gdf.within(sg.box(*self._crs.area_of_use.bounds))).sum()
         if outside_aou:
@@ -110,7 +106,6 @@ class Visualization:
         self._clip_and_reproject = self.clip_and_reproject_function(clipping_mask, self._crs)
         #Save bounds of locations in units of visualization's crs.
         self._locbounds = gdf.to_crs(self._crs).total_bounds
-        
 
     # Functions that return objects in the same crs as that of the parameters.
 
@@ -225,8 +220,45 @@ class Visualization:
         # Get dataframe and add.
         gdf = gpd.read_file(filepath)[['geometry']] #Workaround: only interested in geometry, but clip function only plays well with geodataframes
         self.add_background(gdf, **kwargs)
+
+    def add_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
+                       markersize:float=200, **kwargs) -> None:
+        """Add start location to figure. All kwargs are passed to the plot 
+        (GeoSeries.plot) function."""
+        #Get data. 
+        gdf = self.gdf_point_fromlocations([self.start])
+        #Create/get image and add elements.
+        fig, ax = self.fig_and_ax()   
+        kwargs = {'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs}
+        gdf.plot(ax=ax, **kwargs)
+
+
+class MapViz(_BaseViz):
+    """
+    Class to visualize the data (locations, directions) in a Map object.
+    
+    mapp: prepared Map object.
+    crs: which coordinate reference system the data must be displayed in.
+    clipping_margin: 'breathing room' between the locations and the figure borders, expressed
+        as fraction of the height/width the locations take up. Used to discard
+        elements outside the view port. Make this value as large as you think 
+        you'll conceivably use, but no larger. When actually displayng the figure, 
+        a smaller margin can be used.
+    """    
+    
+    def __init__(self, mapp:Map, crs:str='epsg:3395', clipping_margin:float=1):
+        self._map = mapp
+        self._crs = pyproj.CRS(crs)     
+        #Use all locations on the map to calculate some initial things.
+        gdf = GeoDataFrame(geometry=[e.point for e in self._map.ends], 
+                           crs=CRS_LONLAT)
+        super().__init__(gdf, clipping_margin)
+    
+    @property
+    def start(self):
+        return self._map.start
         
-    def add_lines(self, var_width:str='log', minimum_width:float=0.35, 
+    def add_routes(self, var_width:str='log', minimum_width:float=0.35, 
                   *, alpha:float=0.7, **kwargs) -> None:
         """Add routes, to get from start to end locations, as lines to figure.
         var_width ('not', 'lin', or 'log') sets how linewidth varies (not, linearly,
@@ -247,29 +279,32 @@ class Visualization:
         df_path['color'] = df_path['carrier'].apply(lambda x: Styles.color(x))
         gdf_path = self.gdf_linestring_fromroutes(df_path['path'])
         #self._map.save() #Save, as previous action might have caused many api-calls.
-        #TODO uncomment
-        #Save.
-        self._data['add_lines'] = [gdf_path] #TODO: save bounding box instead of entire data?  
-
+        
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()  
         gdf_path.plot(ax=ax, **{'alpha':alpha, 'color':df_path['color'], 
                                 'linewidth':df_path['linewidth'], **kwargs})
     
-    def add_quiver(self, *, cmap:str='RdYlGn_r', width:float=0.003, **kwargs) -> None:
+    def add_quiver(self, inter:bool=True, 
+                   *, cmap:str='RdYlGn_r', width:float=0.003, **kwargs) -> None:
         """Add arrows, from 'actual' to 'corrected' locations, where corrected
         location is where the point would be, if all points could be reached at
-        same speed. All kwargs are passed to the plot (ax.quiver) function."""
+        same speed. If inter==True (default), also draw arrow for intermediate
+        points returned by google. All kwargs are passed to the plot (ax.quiver)
+        function."""
         #Get data.
-        s_dirs = self._map.directions
-        df = pd.DataFrame({'speed': s_dirs.apply(lambda x: x.crow_speed),
-                           'duration': s_dirs.apply(lambda x: x.duration)})
+        if inter:
+            s_mov = self._map.steps(0)
+        else:
+            s_mov = self._map.directions
+        df = pd.DataFrame({'speed': s_mov.apply(lambda x: x.crow_speed),
+                           'duration': s_mov.apply(lambda x: x.duration)})
         av_speed = df['speed'].mean()        
-        gs1 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end)).geometry
-        gs2 = self.gdf_point_fromlocations(s_dirs.apply(lambda x: x.end_durationcorrected(av_speed))).geometry
+        gs1 = self.gdf_point_fromlocations(s_mov.apply(lambda x: x.end)).geometry
+        gs2 = self.gdf_point_fromlocations(s_mov.apply(lambda x: x.end_durationcorrected(av_speed))).geometry
         self._map.save()#Save, as previous action might have caused many api-calls.
            
-        #Create arrows (quiver) of displacement, and save.
+        #Create arrows (quiver) of displacement.
         self.df_quiv = df_quiv = pd.DataFrame()
         df_quiv['x'] = gs1.x
         df_quiv['y'] = gs1.y
@@ -277,22 +312,19 @@ class Visualization:
         df_quiv['v'] = gs2.y - gs1.y
         df_quiv['c'] = df['speed']
 
-        #Save.
-        self._data['add_quiver'] = [gs1, gs2] #df_quiv] geoseries/geodf only
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()
         ax.quiver(df_quiv['x'], df_quiv['y'], df_quiv['u'], df_quiv['v'], df_quiv['c'], angles='xy', 
                   scale_units='xy', scale=1, **{'cmap':cmap, 'width': width, **kwargs})
     
-    def add_voronoi(self, show:str='duration', inter:bool=False, detach=0,
+    def add_voronoi(self, show:str='duration', inter:bool=True,
                     *, cmap:str=None, alpha:float=0.5, **kwargs) -> None:
         """Add colored (voronoi) cells to figure, coloring the area around a 
-        location. If inter==True (default), also color the area around inter-
-        mediate points returned by google. Pick color based on time it takes 
-        to get there (if show == 'duration', default) or speed with which one 
-        gets there (if show == 'speed'). If parameter 'detach' > 0 (i.e. 0.05), 
-        a gutter is drawn between cells of 5% of their typical 1D-size. All 
-        kwargs are passed to plot (geopandas.plot) function."""
+        location. If inter==True (default), also color the area around 
+        intermediate points returned by google. Pick color based on time it 
+        takes to get there (if show == 'duration', default) or speed with which
+        one gets there (if show == 'speed'). All kwargs are passed to plot 
+        (geopandas.plot) function."""
         if show.lower() == 'duration':
             show_func = lambda d: d.duration / 3600
             label = 'Time needed to get to point [h]'
@@ -312,7 +344,7 @@ class Visualization:
         else:
             s_mov = self._map.directions
             
-        mask = s_mov.apply(lambda x: x.route[-1]).duplicated()
+        mask = s_mov.apply(lambda x: x.end_asfound).duplicated()
         s_mov = s_mov[~mask]  #keep only one route per end point.
         locas = s_mov.apply(lambda x: x.end).values
         points = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
@@ -329,12 +361,6 @@ class Visualization:
                                     'point': points.geometry, 'geometry': polys},
                                    crs=points.crs)
         
-        #Detach polygons from each other so they don't touch.
-        if detach:
-            dist = -(detach / 2) * np.sqrt(gdf_voronoi.geometry.area.median()) # typical size of cell.
-            gdf_voronoi.geometry = gdf_voronoi.geometry.buffer(dist)
-            mask = gdf_voronoi.geometry.apply(lambda p: p.area) > 0
-            gdf_voronoi = gdf_voronoi[mask]
         #Clip to 'land' and visualization's clipping area.
         land = self._clip_and_reproject(ml._geodf()) 
         gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
@@ -343,25 +369,12 @@ class Visualization:
         values = gdf_voronoi['mov'].apply(show_func)
         vmin, vmax = values.quantile([0.01, 0.99]) #domain of color bar.
         
-        #Save.
-        self._data['add_voronoi'] = [gdf_voronoi]
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()                
         legend = {'label': label, 'orientation': "horizontal", 'shrink':1, 'aspect':30, 'pad':0.02}
         gdf_voronoi.plot(ax=ax, column=values, vmin=vmin, vmax=vmax, legend=True, 
                          legend_kwds=legend, **{'cmap':cmap, 'alpha':alpha, **kwargs})
-        
-    def add_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
-                       markersize:float=200, **kwargs) -> None:
-        """Add start location to figure. All kwargs are passed to the plot 
-        (GeoSeries.plot) function."""
-        #Get data. 
-        gdf = self.gdf_point_fromlocations([self._map.start])
-        #Create/get image and add elements.
-        fig, ax = self.fig_and_ax()   
-        kwargs = {'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs}
-        gdf.plot(ax=ax, **kwargs)
-    
+            
     def add_endpoints(self, asfound:bool=False, inter:bool=False,
                       *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
         """Add end locations to figure. Locations that no route has been found to
@@ -377,13 +390,24 @@ class Visualization:
             s_mov = self._map.directions
                 
         if asfound:
-            s = [Location(coords) for coords in s_mov.apply(lambda m: m.route[-1]).unique()]
+            f = lambda m: m.end_asfound
         else:
-            s = s_mov.apply(lambda x: x.end)
-        gdf = self.gdf_point_fromlocations(s)
+            f = lambda m: m.end
         
-        #Save.
-        self._data['add_endpoints'] = [gdf]
+        gdf = self.gdf_point_fromlocations(s_mov.apply(f))
+        
         #Create image and add elements.
         fig, ax = self.fig_and_ax()
         gdf.plot(ax=ax, **{'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
+
+
+class MultimapViz(_BaseViz):
+    
+    def __init__(self, mumap:Multimap, crs:str='epsg:3395', clipping_margin:float=1):
+        self._mumap = mumap
+        self._crs = pyproj.CRS(crs)     
+        #Use all locations on the map to calculate some initial things.
+        gdf = GeoDataFrame(geometry=[e.point for e in self._mumap.ends], 
+                           crs=CRS_LONLAT)
+        super().__init__(gdf, clipping_margin)
+        

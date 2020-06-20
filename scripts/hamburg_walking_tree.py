@@ -18,20 +18,20 @@ with open('apikey.txt') as f:
 # Create.
 m = Map.from_address('Stresemannstrasse 320, Hamburg', 'walking')
 filtr = ml.geofilter()
-m.add_locations(ml.on_circular_grid(m.start, [10_000], 1_000, geofilter=filtr))
+m.add_ends(ml.on_circular_grid(m.start, [10_000], 6_000, geofilter=filtr))
 
 # Save.
-# m.to_pickle("pickle/hamburg_walking_1000_10000.pkl")
+m.to_pickle("pickle/hamburg_walking_1000_10000.pkl")
 # Load.
-m = Map.from_pickle("pickle/hamburg_walking_1000_10002.pkl")
+m = Map.from_pickle("pickle/hamburg_walking_1000_10000.pkl")
 
 
 # %% Visualize.
 
-from maptra import Visualization
+from maptra import MapViz
 import geopandas as gpd
 
-viz = Visualization(m, 'EPSG:5243') #) #, '3395, 4326, 5243, 25832
+viz = MapViz(m, 'EPSG:5243') #) #, '3395, 4326, 5243, 25832
 
 # Background map:
 is_detailed = False
@@ -62,18 +62,18 @@ viz.add_background_fromfile(base_path + 'water_a.shp', color='white', alpha=1, z
 
 
 # Content: 
-viz.add_lines(alpha=0.9, minimum_width=1, color='black', var_width='not', zorder=12)
-viz.add_voronoi('duration', True, alpha=0.9)#, edgecolor='black')
-# viz.add_startpoint(alpha=1, color='grey', markersize=90)
-viz.add_endpoints(True, marker='o', color='grey', alpha=0.3)
-# viz.add_quiver(cmap='brg') #cmap='RdYlGn_r',
+viz.add_routes(alpha=0.9, minimum_width=1, color='black', var_width='lin', zorder=12)
+viz.add_voronoi('speed', alpha=0.9) #edgecolor='black')
+viz.add_startpoint(alpha=1, color='grey', markersize=90)
+viz.add_endpoints(marker='o', color='grey', markersize=10, alpha=0.87)
+# viz.add_quiver(cmap='brg')
 viz.showfig(0.03)
 
 # %% Save file.
 
 from pathlib import Path
-folderpath = 'output/temp/' #with trailing /
-filename = 'trippy' #no extension
+folderpath = 'output/temp/' #must have trailing /
+filename = 'walking'        #no file extension
 
 Path(folderpath).mkdir(parents=True, exist_ok=True)
 sizes = {'small': 400, 'medium': 2000, 'large': 5000}

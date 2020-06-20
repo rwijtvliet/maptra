@@ -76,7 +76,7 @@ from googlemaps.convert import decode_polyline, encode_polyline
 
 
 
-class Movement:
+class _Movement:
     """
     Parent class for movement.
     
@@ -103,7 +103,16 @@ class Movement:
         return self._end
 
     @property
+    def end_asfound(self) -> Location:
+        """Return end Location as found by the api. Or as specified, if none
+        found."""
+        if not (route := self.route):
+            return self.end
+        return Location(route[-1])
+
+    @property
     def mode(self) -> str:
+        """Return transportation mode."""
         return self._mode       
     
     @property
@@ -146,7 +155,8 @@ class Movement:
         dist, bear = distance_factor * self.distance, self.crow_bearing
         return Location.from_latlon(self.start.ll.destination(dist, bear))  
 
-class Step(Movement):
+
+class Step(_Movement):
     """
     Type of Movement with partial information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
@@ -301,8 +311,7 @@ class PartialStep(Step):
         return False #always False, because there is a better (entire) step somewhere to check for this.
 
 
-
-class Directions(Movement):
+class Directions(_Movement):
     """
     Type of Movement with information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
@@ -345,7 +354,7 @@ class Directions(Movement):
             return self._estimate['duration']
         return self._get_full_api_result()[0]['legs'][0]['duration']['value']
    
-    def check_estimate(self, other:Movement) -> bool:
+    def check_estimate(self, other:_Movement) -> bool:
         """Check if information in 'other' can give an estimate for duration and
         distance. (Or improve on the current estimate.)"""
         if self.state == 2:
