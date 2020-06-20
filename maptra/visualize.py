@@ -278,7 +278,7 @@ class MapViz(_BaseViz):
             df_path['linewidth'] *= np.log(df_path['count']) + 1
         df_path['color'] = df_path['carrier'].apply(lambda x: Styles.color(x))
         gdf_path = self.gdf_linestring_fromroutes(df_path['path'])
-        #self._map.save() #Save, as previous action might have caused many api-calls.
+        self._map.save() #Save, as previous action might have caused many api-calls.
         
         #Create/get image and add elements.
         fig, ax = self.fig_and_ax()  
@@ -297,11 +297,11 @@ class MapViz(_BaseViz):
             s_mov = self._map.steps(0)
         else:
             s_mov = self._map.directions
-        df = pd.DataFrame({'speed': s_mov.apply(lambda x: x.crow_speed),
-                           'duration': s_mov.apply(lambda x: x.duration)})
+        df = pd.DataFrame({'speed': s_mov.apply(lambda m: m.crow_speed),
+                           'duration': s_mov.apply(lambda m: m.duration)})
         av_speed = df['speed'].mean()        
-        gs1 = self.gdf_point_fromlocations(s_mov.apply(lambda x: x.end)).geometry
-        gs2 = self.gdf_point_fromlocations(s_mov.apply(lambda x: x.end_durationcorrected(av_speed))).geometry
+        gs1 = self.gdf_point_fromlocations(s_mov.apply(lambda m: m.end)).geometry
+        gs2 = self.gdf_point_fromlocations(s_mov.apply(lambda m: m.end_durationcorrected(av_speed))).geometry
         self._map.save()#Save, as previous action might have caused many api-calls.
            
         #Create arrows (quiver) of displacement.
@@ -326,12 +326,12 @@ class MapViz(_BaseViz):
         one gets there (if show == 'speed'). All kwargs are passed to plot 
         (geopandas.plot) function."""
         if show.lower() == 'duration':
-            show_func = lambda d: d.duration / 3600
+            show_func = lambda m: m.duration / 3600
             label = 'Time needed to get to point [h]'
             if cmap is None:
                 cmap = 'RdYlGn_r'
         elif show.lower() == 'speed':
-            show_func = lambda d: d.crow_speed * 3.6
+            show_func = lambda m: m.crow_speed * 3.6
             label = 'Velocity to get to point, measured by air-distance [km/h]'
             if cmap is None:
                 cmap = 'RdYlGn'
@@ -344,9 +344,7 @@ class MapViz(_BaseViz):
         else:
             s_mov = self._map.directions
             
-        mask = s_mov.apply(lambda x: x.end_asfound).duplicated()
-        s_mov = s_mov[~mask]  #keep only one route per end point.
-        locas = s_mov.apply(lambda x: x.end).values
+        locas = s_mov.apply(lambda m: m.end).values
         points = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
         self._map.save() #save, as previous action might have caused many api-calls.
         
@@ -375,12 +373,10 @@ class MapViz(_BaseViz):
         gdf_voronoi.plot(ax=ax, column=values, vmin=vmin, vmax=vmax, legend=True, 
                          legend_kwds=legend, **{'cmap':cmap, 'alpha':alpha, **kwargs})
             
-    def add_endpoints(self, asfound:bool=False, inter:bool=False,
+    def add_endpoints(self, inter:bool=False,
                       *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
-        """Add end locations to figure. Locations that no route has been found to
-        are excluded. If asfound==False, put marker at specified location. If 
-        asfound==True, put marker at location that a route was found to. (always 
-        True if inter==True). If inter==True, also plot intermediate points returned 
+        """Add end locations to figure. Locations that no route has been found
+        to are excluded. If inter==True, also plot intermediate points returned
         by google api (default False). All kwargs are passed to the plot 
         (GeoSeries.plot) function."""
         #Get data.
@@ -388,13 +384,7 @@ class MapViz(_BaseViz):
             s_mov = self._map.steps(0)
         else:
             s_mov = self._map.directions
-                
-        if asfound:
-            f = lambda m: m.end_asfound
-        else:
-            f = lambda m: m.end
-        
-        gdf = self.gdf_point_fromlocations(s_mov.apply(f))
+        gdf = self.gdf_point_fromlocations(s_mov.apply(lambda m: m.end))
         
         #Create image and add elements.
         fig, ax = self.fig_and_ax()

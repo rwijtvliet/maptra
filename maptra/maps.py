@@ -250,15 +250,15 @@ class Map:
     def steps(self, min_dist:float=0) -> pd.Series:
         """Returns individual steps of all directions in map, if route_distance
         of the step is at least 'min_dist'."""
-        df = pd.DataFrame({'step': [step for steps in self.directions.apply(
-            lambda d: d.steps()) for step in steps]})
+        s_mov = pd.Series([step for steps in self.directions.apply(
+            lambda d: d.steps()) for step in steps])
         # Remove steps with too small route distance.
-        mask = (df['step'].apply(lambda s: s.distance_routeonly) > min_dist)
-        df = df[mask]
+        mask = (s_mov.apply(lambda m: m.distance_routeonly) > min_dist)
+        s_mov = s_mov[mask]
         # Remove steps with duplicate end point.
-        df['coords'] = df['step'].apply(lambda s: s.end.coords)
-        df.drop_duplicates('coords', inplace=True)
-        return df['step']
+        mask = s_mov.apply(lambda m: m.end.coords).duplicated()
+        s_mov = s_mov[~mask]  #keep only one movement per end point.
+        return s_mov
 
 
 class Multimap:

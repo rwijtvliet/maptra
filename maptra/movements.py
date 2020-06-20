@@ -103,14 +103,6 @@ class _Movement:
         return self._end
 
     @property
-    def end_asfound(self) -> Location:
-        """Return end Location as found by the api. Or as specified, if none
-        found."""
-        if not (route := self.route):
-            return self.end
-        return Location(route[-1])
-
-    @property
     def mode(self) -> str:
         """Return transportation mode."""
         return self._mode       
