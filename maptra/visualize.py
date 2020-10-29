@@ -36,12 +36,15 @@ Sources of ESRI Shappe files for the background map:
 from maptra.locations import Location
 import maptra.locations as ml
 from maptra.maps import Map, Multimap
+from maptra.external.point2color import ColorMap2, ColorMap3
 import os
 import numpy as np
 import pandas as pd
 import geopandas as gpd
 from geopandas import GeoDataFrame
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap, to_rgb
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import shapely.geometry as sg
 import pyproj
 import warnings
@@ -49,35 +52,59 @@ from scipy.spatial import Voronoi
 from maptra.voronoi_finite_polygons_2d import voronoi_finite_polygons_2d
 from typing import Dict, List, Union, Iterable, Tuple, Optional, Callable
 
+
+CRS_LONLAT = 'epsg:4326'
+
+
 class Styles:
+    """Return style for lines, based on carrier (i.e., transportation mode or 
+    vehicle type)."""
     def style(carrier):
+        carrier = carrier.upper()
         default = {'color': '#646613', 'linestyle': '-'}
+        # These can be modes:
+        if carrier == 'TRANSIT':
+            return {**default, 'color': '#D87A11'} #yellow/orangeish
         if carrier == 'WALKING':
-            return {**default, 'color': '#66131d', 'linestyle': '--'}
-        elif carrier == 'SUBWAY':
+            return {**default, 'color': '#FF004D', 'linestyle': '--'} #pink/redish
+        if carrier == 'DRIVING':
+            return {**default, 'color': '#6C2FB1'} #purple
+        if carrier == 'BICYCLING':
+            return {**default, 'color': '#3C9537'} #green
+        # These cannot be modes (i.e., always vehicle types when chosing mode TRANSIT):
+        if carrier == 'SUBWAY':
             return {**default, 'color': '#136622'}
-        elif carrier == 'COMMUTER_TRAIN':
+        if carrier == 'COMMUTER_TRAIN':
             return {**default, 'color': '#135766'}
-        elif carrier == 'HEAVY_RAIL' or carrier == 'LONG_DISTANCE_TRAIN':
+        if carrier == 'HEAVY_RAIL' or carrier == 'LONG_DISTANCE_TRAIN':
             return {**default, 'color': '#5c6613'}
-        elif carrier == 'BUS':
+        if carrier == 'BUS':
             return {**default, 'color': '#131d66'}
-        elif carrier == 'DRIVING':
-            return {**default, 'color': '#661346'}
-        elif carrier == 'BICYCLING':
-            return {**default, 'color': '#664413'}
-        elif carrier == 'FERRY':
+        if carrier == 'FERRY':
             return {**default, 'color': '#331366'}
-        else:
-            return default
+        return default
     def color(carrier):
         return Styles.style(carrier)['color']
     def linestyle(carrier):
         return Styles.style(carrier)['linestyle']
 
-CRS_LONLAT = 'epsg:4326'
 
-class _BaseViz:
+def adjust_lightness(color, amount=0.5):
+    """Change color lightness by multiplication with specified amount. If 
+    amount > 0, make lighter. If amount < 0, make darker.
+    Source: https://stackoverflow.com/a/49601444/2302262"""
+    import matplotlib.colors as mc
+    import colorsys
+    factor = (1 + amount)
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    h, l, s = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(h, max(0, min(1, factor * l)), s)
+
+
+class _Base:
     """
     Parent class for visualisation.
     
@@ -85,7 +112,6 @@ class _BaseViz:
     classes must implement following attributes or property methods (setter not
     required):
         ._crs (str) (before calling __init__ method of this class)
-        .start (Location)
 
     Additionally, child classes can override any properties/methods of this class.
     """
@@ -154,7 +180,8 @@ class _BaseViz:
         gdf = GeoDataFrame(geometry=[sg.Point(p[::-1]) for p in coordlist], crs=CRS_LONLAT)
         return self._clip_and_reproject(gdf)
     
-    def gdf_linestring_fromroutes(self, routes:Iterable[Iterable[Iterable[float]]]) -> GeoDataFrame:
+    def gdf_linestring_fromroutes(self, routes:Iterable[Iterable[Iterable[float]]]
+                                  ) -> GeoDataFrame:
         """Return GeoDataFrame with shapely Linestrings: one row for each
         route (= list of (lat, lon)-tuples) in the provided iterable. Also 
         clip, and reproject to wanted crs."""
@@ -205,35 +232,76 @@ class _BaseViz:
      
     #Adding elements to the figure.
     
-    def add_background(self, gdf:GeoDataFrame, *, 
+    def draw_background(self, source:Union[GeoDataFrame, str], *, 
                        alpha:float=0.3, color:str='grey', linewidth:float=0.15, **kwargs) -> None:
-        """Add geodataframe to the figure. All kwargs are passed to the plot function."""
+        """Draw 'source' (geodataframe or shape file) to the figure. All kwargs 
+        are passed to the plot function."""
+        # Get data.
+        if isinstance(source, GeoDataFrame): 
+            gdf = source
+        else:    
+            #assue this is a file
+            gdf = gpd.read_file(source)[['geometry']] #Workaround: only interested in geometry, but clip function only plays well with geodataframes
         # Clip.
         gdf = self._clip_and_reproject(gdf)
         # Plot.
         fig, ax = self.fig_and_ax()
         gdf.plot(ax=ax, **{'alpha':alpha, 'color':color, 'linewidth':linewidth, **kwargs})        
-    
-    def add_background_fromfile(self, filepath:str, **kwargs) -> None:
-        """Add background shape file to the figure. filepath: path to shape file.
-        All kwargs are passed to the plot function."""
-        # Get dataframe and add.
-        gdf = gpd.read_file(filepath)[['geometry']] #Workaround: only interested in geometry, but clip function only plays well with geodataframes
-        self.add_background(gdf, **kwargs)
 
-    def add_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
-                       markersize:float=200, **kwargs) -> None:
-        """Add start location to figure. All kwargs are passed to the plot 
-        (GeoSeries.plot) function."""
-        #Get data. 
-        gdf = self.gdf_point_fromlocations([self.start])
-        #Create/get image and add elements.
-        fig, ax = self.fig_and_ax()   
-        kwargs = {'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs}
+    def _draw_locations(self, locas:Iterable[Location], **kwargs) -> None:
+        """Draw locations to figure."""
+        # Turn locations into points.
+        gdf = self.gdf_point_fromlocations(locas)
+        # Create/get image and add elements.
+        fig, ax = self.fig_and_ax()
         gdf.plot(ax=ax, **kwargs)
 
+    def _draw_routes(self, df:pd.DataFrame, var_width:str, minimum_width:float, 
+                  **kwargs) -> None:
+        """Draw routes, to get from start to end locations, as lines to figure.
+        'df' must contain columns 'path' (list of tuples), 'count' (int), 'color'."""
+        # Turn usage count into width.
+        df['linewidth'] = minimum_width
+        if var_width[:3] == 'lin':
+            df['linewidth'] *= df['count']
+        elif var_width[:3] == 'log':
+            df['linewidth'] *= np.log(df['count']) + 1
+        elif var_width[:3] != 'not':
+            raise ValueError("Value for parameter 'var_width' must be in {'lin', 'log', 'not'}.")
+        gdf_path = self.gdf_linestring_fromroutes(df['path'])
+        # Create/get image and add elements.
+        fig, ax = self.fig_and_ax()  
+        gdf_path.plot(ax=ax, **{'color':df['color'], 'linewidth':df['linewidth'], 
+                                **kwargs})
+        
+    def _draw_voronoi(self, locas, start, vals, cax, **kwargs) -> None:
+        """Draw colored voronoi cells to figure."""
+        # Create (and clip) Voronoi cells.
+        #   Center points.
+        points = self.gdf_point_fromlocations(np.append(locas, [start])) #Add start point to keep region around it empty.
+        #   Regions.
+        vor = Voronoi([(point.x, point.y) for point in points.geometry])
+        regions, vertices = voronoi_finite_polygons_2d(vor)
+        #   Remove region around start again, so it won't be drawn (because we don't have a value for it).
+        regions, points = regions[:-1], points[:-1]
+        polys = [sg.Polygon(vertices[region]) for region in regions]
+        gdf_voronoi = GeoDataFrame({'location': locas, 
+                                    'point': points.geometry, 'geometry': polys},
+                                   crs=points.crs)
+        #   Clip to 'land' and visualization's clipping area.
+        land = self._clip_and_reproject(ml._geodf()) 
+        gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
+        
+        # Create/get image and add elements.
+        fig, ax = self.fig_and_ax()
+    
+        
+        # ax.plot(gdf_voronoi.geometry, **kwargs)           
+        gdf_voronoi.plot(ax=ax, column=vals, cax=cax, **kwargs)
+        # gdf_voronoi.plot(ax=ax, column=vals, **kwargs)
+    
 
-class MapViz(_BaseViz):
+class MapViz(_Base):
     """
     Class to visualize the data (locations, directions) in a Map object.
     
@@ -253,46 +321,56 @@ class MapViz(_BaseViz):
         gdf = GeoDataFrame(geometry=[e.point for e in self._map.ends], 
                            crs=CRS_LONLAT)
         super().__init__(gdf, clipping_margin)
-    
-    @property
-    def start(self):
-        return self._map.start
         
-    def add_routes(self, var_width:str='log', minimum_width:float=0.35, 
+    def draw_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
+                       markersize:float=200, **kwargs) -> None:
+        """Draw start location to figure. All kwargs are passed to the plot 
+        (GeoSeries.plot) function."""
+        # Draw. 
+        self._draw_locations([self._map._start], **{'alpha':alpha, 
+            'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
+        
+    def draw_endpoints(self, inter:bool=False,
+                      *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
+        """Draw end locations to figure. Locations that no route has been found
+        to are excluded. If inter==True, also plot intermediate points returned
+        by google api (default False). All kwargs are passed to the plot 
+        (GeoSeries.plot) function."""
+        # Get data.
+        if inter:
+            locas = self._map.steps(0).apply(lambda m: m.end)
+        else:
+            locas = self._map.ends
+        # Draw.
+        self._draw_locations(locas, **{'alpha':alpha, 
+            'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
+        
+    def draw_routes(self, var_width:str='log', minimum_width:float=0.35, 
                   *, alpha:float=0.7, **kwargs) -> None:
-        """Add routes, to get from start to end locations, as lines to figure.
+        """Draw routes, to get from start to end locations, as lines to figure.
         var_width ('not', 'lin', or 'log') sets how linewidth varies (not, linearly,
         or logarithmically) with number of routes that include it. minimum_width is 
         in points. By default, the color changes with transportation carrier. All 
         kwargs (e.g., color) are passed to the plot (GeoSeries.plot) function 
         and can be used to override these values.
         """
-        #Get data.
+        # Get data.
         df_path = pd.DataFrame([{'path': p, 'count': cnt, 'carrier': carrier} 
                                 for carrier, subpaths in self._map.carriers_subpaths.items() 
                                 for cnt, paths in subpaths.items() for p in paths])
-        df_path['linewidth'] = minimum_width 
-        if var_width[:3].lower() == 'lin':
-            df_path['linewidth'] *= df_path['count']
-        elif var_width[:3].lower() == 'log':
-            df_path['linewidth'] *= np.log(df_path['count']) + 1
         df_path['color'] = df_path['carrier'].apply(lambda x: Styles.color(x))
-        gdf_path = self.gdf_linestring_fromroutes(df_path['path'])
         self._map.save() #Save, as previous action might have caused many api-calls.
-        
-        #Create/get image and add elements.
-        fig, ax = self.fig_and_ax()  
-        gdf_path.plot(ax=ax, **{'alpha':alpha, 'color':df_path['color'], 
-                                'linewidth':df_path['linewidth'], **kwargs})
+        # Draw.
+        self._draw_routes(df_path, var_width, minimum_width, **{'alpha':alpha, **kwargs})
     
-    def add_quiver(self, inter:bool=True, 
+    def draw_quiver(self, inter:bool=True, 
                    *, cmap:str='RdYlGn_r', width:float=0.003, **kwargs) -> None:
-        """Add arrows, from 'actual' to 'corrected' locations, where corrected
+        """Draw arrows, from 'actual' to 'corrected' locations, where corrected
         location is where the point would be, if all points could be reached at
         same speed. If inter==True (default), also draw arrow for intermediate
         points returned by google. All kwargs are passed to the plot (ax.quiver)
         function."""
-        #Get data.
+        # Get data.
         if inter:
             s_mov = self._map.steps(0)
         else:
@@ -304,7 +382,7 @@ class MapViz(_BaseViz):
         gs2 = self.gdf_point_fromlocations(s_mov.apply(lambda m: m.end_durationcorrected(av_speed))).geometry
         self._map.save()#Save, as previous action might have caused many api-calls.
            
-        #Create arrows (quiver) of displacement.
+        # Create arrows (quiver) of displacement.
         self.df_quiv = df_quiv = pd.DataFrame()
         df_quiv['x'] = gs1.x
         df_quiv['y'] = gs1.y
@@ -312,25 +390,25 @@ class MapViz(_BaseViz):
         df_quiv['v'] = gs2.y - gs1.y
         df_quiv['c'] = df['speed']
 
-        #Create/get image and add elements.
+        # Create/get image and add elements.
         fig, ax = self.fig_and_ax()
         ax.quiver(df_quiv['x'], df_quiv['y'], df_quiv['u'], df_quiv['v'], df_quiv['c'], angles='xy', 
                   scale_units='xy', scale=1, **{'cmap':cmap, 'width': width, **kwargs})
     
-    def add_voronoi(self, show:str='duration', inter:bool=True,
+    def draw_voronoi(self, show:str='duration', inter:bool=True,
                     *, cmap:str=None, alpha:float=0.5, **kwargs) -> None:
-        """Add colored (voronoi) cells to figure, coloring the area around a 
+        """Draw colored (voronoi) cells to figure, coloring the area around a 
         location. If inter==True (default), also color the area around 
         intermediate points returned by google. Pick color based on time it 
         takes to get there (if show == 'duration', default) or speed with which
         one gets there (if show == 'speed'). All kwargs are passed to plot 
         (geopandas.plot) function."""
-        if show.lower() == 'duration':
+        if show == 'duration':
             show_func = lambda m: m.duration / 3600
             label = 'Time needed to get to point [h]'
             if cmap is None:
                 cmap = 'RdYlGn_r'
-        elif show.lower() == 'speed':
+        elif show == 'speed':
             show_func = lambda m: m.crow_speed * 3.6
             label = 'Velocity to get to point, measured by air-distance [km/h]'
             if cmap is None:
@@ -338,60 +416,23 @@ class MapViz(_BaseViz):
         else:
             raise ValueError("Parameter 'show' must be 'duration' or 'speed'.")
                 
-        #Get data.
+        # Get data.
         if inter:
             s_mov = self._map.steps(0)
         else:
             s_mov = self._map.directions
-            
         locas = s_mov.apply(lambda m: m.end).values
-        points = self.gdf_point_fromlocations(np.append(locas, [self._map.start])) #Add start point to keep region around it empty.
+        vals = s_mov.apply(show_func)
+        vmin, vmax = vals.quantile([0.01, 0.99]) #domain of color bar.
         self._map.save() #save, as previous action might have caused many api-calls.
-        
-        #Create (and clip) Voronoi cells.
-        vor = Voronoi([(point.x, point.y) for point in points.geometry])
-        regions, vertices = voronoi_finite_polygons_2d(vor)
-        #Remove region around start again, so it won't be drawn (because we don't have a value for it).
-        regions, points = regions[:-1], points[:-1]
-        # points.drop(points.index[-1], inplace=True)     
-        polys = [sg.Polygon(vertices[region]) for region in regions]
-        gdf_voronoi = GeoDataFrame({'mov': s_mov.values, 'location': locas, 
-                                    'point': points.geometry, 'geometry': polys},
-                                   crs=points.crs)
-        
-        #Clip to 'land' and visualization's clipping area.
-        land = self._clip_and_reproject(ml._geodf()) 
-        gdf_voronoi = gpd.clip(gdf_voronoi, land) #both in self._crs
-        # remove = self._clip_and_reproject(gpd.read_file(remove))
-        # gdf_voronoi = gpd.overlay(gdf_voronoi, remove, how='difference') #both in self._crs
-        values = gdf_voronoi['mov'].apply(show_func)
-        vmin, vmax = values.quantile([0.01, 0.99]) #domain of color bar.
-        
-        #Create/get image and add elements.
-        fig, ax = self.fig_and_ax()                
+        # Draw.
         legend = {'label': label, 'orientation': "horizontal", 'shrink':1, 'aspect':30, 'pad':0.02}
-        gdf_voronoi.plot(ax=ax, column=values, vmin=vmin, vmax=vmax, legend=True, 
-                         legend_kwds=legend, **{'cmap':cmap, 'alpha':alpha, **kwargs})
-            
-    def add_endpoints(self, inter:bool=False,
-                      *, color:str='black', alpha:float=0.9, marker:str='o', markersize:float=3, **kwargs) -> None:
-        """Add end locations to figure. Locations that no route has been found
-        to are excluded. If inter==True, also plot intermediate points returned
-        by google api (default False). All kwargs are passed to the plot 
-        (GeoSeries.plot) function."""
-        #Get data.
-        if inter:
-            s_mov = self._map.steps(0)
-        else:
-            s_mov = self._map.directions
-        gdf = self.gdf_point_fromlocations(s_mov.apply(lambda m: m.end))
-        
-        #Create image and add elements.
-        fig, ax = self.fig_and_ax()
-        gdf.plot(ax=ax, **{'alpha':alpha, 'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
+        self._draw_voronoi(locas, self._map.start, vals, **{'vmin':vmin,
+                           'vmax':vmax, 'legend':True, 'legend_kwds':legend,
+                           'cmap':cmap, 'alpha':alpha, **kwargs})
 
 
-class MultimapViz(_BaseViz):
+class MultimapViz(_Base):
     
     def __init__(self, mumap:Multimap, crs:str='epsg:3395', clipping_margin:float=1):
         self._mumap = mumap
@@ -400,4 +441,127 @@ class MultimapViz(_BaseViz):
         gdf = GeoDataFrame(geometry=[e.point for e in self._mumap.ends], 
                            crs=CRS_LONLAT)
         super().__init__(gdf, clipping_margin)
+    
+    def draw_startpoint(self, *, color:str='black', alpha:float=0.9, marker:str='o', 
+                       markersize:float=200, **kwargs) -> None:
+        """Draw start location to figure. All kwargs are passed to the plot 
+        (GeoSeries.plot) function."""
+        # Draw. 
+        self._draw_locations([self._mumap._start], **{'alpha':alpha, 
+            'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
         
+    def draw_endpoints(self, *, color:str='black', alpha:float=0.9,
+                       marker:str='o', markersize:float=3, **kwargs) -> None:
+        """Draw end locations to figure. Locations that no route has been found
+        to are excluded. All kwargs are passed to the plot (GeoSeries.plot)
+        function."""
+        # Draw.
+        self._draw_locations(self._mumap.ends, **{'alpha':alpha, 
+            'color':color, 'marker':marker, 'markersize':markersize, **kwargs})
+        
+    def draw_routes(self, var_width:str='log', minimum_width:float=0.35, 
+                  *, alpha:float=0.7, **kwargs) -> None:
+        """Draw routes, to get from start to end locations, as lines to figure.
+        var_width ('not', 'lin', or 'log') sets how linewidth varies (not, linearly,
+        or logarithmically) with number of routes that include it. minimum_width is 
+        in points. By default, the color changes with transportation mode. All 
+        kwargs (e.g., color) are passed to the plot (GeoSeries.plot) function 
+        and can be used to override these values.
+        """
+        # Get data.
+        df_paths = pd.DataFrame()
+        for mo, ma in zip(self._mumap.modes, self._mumap.maps):
+            df_path = pd.DataFrame([{'path': p, 'count': cnt} 
+                                    for subpaths in ma.carriers_subpaths.values() 
+                                    for cnt, paths in subpaths.items() for p in paths])
+            df_path['color'] = Styles.color(mo)
+            df_paths = df_paths.append(df_path)
+        self._mumap.save() #Save, as previous action might have caused many api-calls.
+        # Draw.
+        self._draw_routes(df_paths, var_width, minimum_width, 
+                          **{'alpha':alpha, **kwargs})
+
+    def draw_voronoi(self, show:str='ratio', colors:Iterable=None,
+                    *, alpha:float=0.5, **kwargs) -> None:
+        """Draw colored (voronoi) cells to figure, coloring the area around a 
+        location, based on mode that the location is reached by in the shortest
+        time. Pick color based on absolute (if show=='abs') or relative (if how
+        == 'ratio', default) time difference between the modes.
+        Preset colors are used if 'colors' is not specified.
+        
+        All kwargs are passed to plot (geopandas.plot) function."""
+        # Get data.
+        df_mov = self._mumap.directions
+        #   Locations.
+        locas = df_mov.iloc[:, 0].apply(lambda m: m.end).values
+        #   Duration for each mode and location.
+        df_val = pd.DataFrame({c: df_mov[c].apply(lambda d: d.duration)
+                               for c in df_mov.columns})
+        if show.lower().startswith('abs'): #Show absolute difference in duration, relative to slowest mode.
+            #   Normalize to worst value for each location.
+            df_relative_duration = df_val.subtract(df_val.max(axis=1), axis=0)
+            #df_relative_duration: per location: value 0 for slowest mode, value<0 for other modes.
+            #   Find largest difference (from 0) we want to display.
+            lim = -np.nanquantile(df_relative_duration.min(axis=1), 0.1)
+        else: #Show relative difference in duration, relative to slowest mode.
+            df_relative_duration = df_val.div(df_val.max(axis=1), axis=0)
+            #df_relative_duration: per location: value 1 for slowest mode, 0<value<1 for other modes.
+            #   Find largest difference (from 1) we want to display.
+            lim = 1 - np.nanquantile(df_relative_duration.min(axis=1), 0.1)
+            
+        #   Handle the number of modes.
+        if len(self._mumap.modes) == 2:
+            mo0, mo1 = self._mumap.modes
+            vals = (df_val.iloc[:,0] - df_val.iloc[:,1]).values #negative if mode0 faster0
+            label = f'Time comparison: {mo0} vs {mo1}\n'
+            if show.lower().startswith('abs'):
+                label += f'e.g.: "-1.5" (+1.5) means, that {mo0} needs 1.5 minutes less (more) time.'
+            else:
+                label += f'e.g.: "-12%" (+12%) means, that {mo0} needs 12% less (more) time.'
+            try:
+                clr0, clr1 = colors
+            except:
+                clr0, clr1 = Styles.color(mo0), Styles.color(mo1)                
+            cmap = LinearSegmentedColormap.from_list('test', (
+                adjust_lightness(clr0, -0.4), to_rgb(clr0), to_rgb('#eee'),
+                to_rgb(clr1), adjust_lightness(clr1, -0.4)))
+        elif len(self._mumap.modes) == 3:
+            mo0, mo1, mo2 = self._mumap.modes
+
+            
+            try:
+                clr0, clr1, clr2 = colors
+            except:
+                clr0, clr1, clr2 = Styles.color(mo0), Styles.color(mo1), Styles.color(mo2)                
+            
+            raise ValueError("Not yet implemented for 3 modes.")
+        else:
+            raise ValueError("Not yet implemented for >3 modes.")
+            
+            
+        # Draw.
+        legend = {'label': label, 'orientation': "horizontal", 'shrink':1, 
+                  'aspect':30, 'pad':0.02, 'ticks': [-50, 0, 50]}
+        
+        ax = self.fig_and_ax()[1]
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.1)
+        self._draw_voronoi(locas, self._mumap.start, vals, cax, **{'vmin':-lim,
+                           'vmax':lim, 'legend':True,
+                           'cmap':cmap, 'alpha':alpha, **kwargs})
+        cax.set_yticks([-50, 0, 50])
+        cax.set_yticklabels(['10:00\nbike is faster', '-same', '10:00\ncar is faster'])
+        # cax.set_yticklabels(['10:00\nbike is faster', '-same', '10:00\ncar is faster'])
+
+        self.ucax=cax
+        # self._draw_voronoi(locas, self._mumap.start, vals, cax, **{'vmin':-lim,
+        #                    'vmax':lim, 'legend':True, 'legend_kwds':legend,
+        #                    'cmap':cmap, 'alpha':alpha, **kwargs})
+        # self.uvals = vals
+        # ax = self.fig_and_ax()[1]
+        # divider = make_axes_locatable(ax)
+        # cax = divider.append_axes("right", size="5%", pad=0.1)
+        # fig, ax = self.fig_and_ax()
+        # cbar = fig.colorbar(fig)
+        
+#%%

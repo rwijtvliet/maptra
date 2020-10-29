@@ -22,16 +22,16 @@ import googlemaps
 import pandas as pd
 import pickle
 
-class Map:
-    """Map that shows the surroundings of a certain central point. The 
-    surroundings are shown by somehow taking into account how the various points
-    on the map can be reached.
+class _Base:
+    """
+    Parent class for maps.
     
-    start_where: the central location on the map; either a Location object or a
-        valid value of its 'where' initialization method.
-    path: filepath to save pickle to.
-    mode: 'bicycling', 'walking', 'transit', or 'driving'.
-    kwargs: that are passed on to the googlemaps.directions function.
+    In order to use without overriding any methods or attributes, descendent 
+    classes must implement following attributes or property methods:
+        ._filepath (str)
+        ._start (Location)
+
+    Additionally, child classes can override any properties/methods of this class.
     """
     
     @staticmethod
@@ -44,49 +44,35 @@ class Map:
     # Instance initialization.
     
     @classmethod    
-    def from_coords(cls, start_coords:Iterable, mode:str='walking', **kwargs):
-        """Create instance of Map, with start location as a (lat, lon)-Tuple."""
+    def from_coords(cls, start_coords:Iterable, *args, **kwargs):
+        """Create class instance, with start location as a (lat, lon)-Tuple."""
         start = Location(start_coords)
-        return cls(start, mode, **kwargs)
+        return cls(start, *args, **kwargs)
         
     @classmethod    
-    def from_address(cls, start_address:str, mode:str='walking', **kwargs):
-        """Create instance of Map, with start location as an address string."""
+    def from_address(cls, start_address:str, *args, **kwargs):
+        """Create class instance, with start location as an address string."""
         start = Location.from_address(start_address)
-        return cls(start, mode, **kwargs)
+        return cls(start, *args, **kwargs)
     
     @classmethod
-    def from_pickle(cls, filepath:str):
-        """Create instance of Map, from a pickled class dictionary."""
+    def from_pickle(cls, filepath):
+        """Create class instance, from a pickled class instance."""
         with open(filepath, 'rb') as f:
             instance = pickle.load(f)
             instance.__dict__['_filepath'] = filepath #File might have been moved since it was pickled.
         return instance
 
-    @classmethod
-    def from_map(cls, mapp, mode:str='walking', **kwargs):
-        """Create instance of Map, from another instance of Map. Start and 
-        Locations are taken from it; transport parameters are supplied in-
-        dividually for this new instance."""
-        instance = cls(mapp.start, mode, **kwargs)
-        instance.add_locations(mapp.directions_all().apply(lambda d: d.end))
-        return instance
-
-    def __init__(self, start:Location, mode:str='walking', **kwargs):
-        self._start = start
-        self._gmapsparameters = {'mode': mode, **kwargs}
-        self._filepath = None
-        self._directions = pd.Series(name='directions')
-
     # Save and load pickle to file.
         
     @property 
     def filepath(self) -> str:
-        """Return path of file that object was stored to, during the previous save."""
+        """Return path of file that class instance was stored to, during 
+        previous save."""
         return self._filepath
     def to_pickle(self, filepath:str=None, *, ignore_err=True) -> Union[bool,str]:
-        """Save object to provided path, if specified. If not specified, save
-        to path that was used during previous save. Returns file path."""
+        """Save class instance to provided path, if specified. If not specified,
+        save to path that was used during previous save. Returns file path."""
         if filepath is not None:
             self._filepath = filepath            
         if self._filepath is None:
@@ -96,23 +82,67 @@ class Map:
                 return False
         with open(self._filepath, 'wb') as f:  
             pickle.dump(self, f)
-        return filepath
+        return self._filepath
     def save(self) -> None:
+        """Save class instance, if filepath was previously set. Fails silently
+        otherwise."""
         if self._filepath is not None:
             self.to_pickle()
-    
-    # Manipulating Locations and Directions.
-    
+
+    # Manipulating Locations and Maps.
+     
     @property
     def start(self) -> Location:
         """Return Location object for central point in the map."""
         return self._start
     
+
+class Map(_Base):
+    """Map that shows the surroundings of a certain central point. The 
+    surroundings are shown by somehow taking into account how the various points
+    on the map can be reached.
+    
+    start: the central location on the map.
+    mode: 'bicycling', 'walking', 'transit', or 'driving'.
+    kwargs: that are passed on to the googlemaps.directions function.
+    """
+    
+    # Instance initialization.
+    
+    @classmethod
+    def from_map(cls, mapp, *args, **kwargs):
+        """Create class instance, from instance of Map. Start and end locations
+        are taken from it; transport parameters are supplied individually for 
+        this new instance."""
+        instance = cls(mapp.start, *args, **kwargs)
+        instance.add_ends(mapp.ends)
+        return instance
+        
+    def __init__(self, start:Location, mode:str='walking', /, **kwargs):
+        self._start = start
+        self._mode = mode
+        self._gmapsparameters = kwargs
+        self._filepath = None
+        self._directions = pd.Series(name='directions')
+    
+    # Main map attributes.
+    
+    @property
+    def mode(self):
+        return self._mode
+     
+    @property
+    def ends(self) -> pd.Series:
+        """Return series with end locations (no api-calls are made)."""
+        return self._directions.apply(lambda d: d.end)
+    
+    # Manipulating Locations and Directions.
+    
     def add_ends(self, locas:Iterable[Location]) -> None:
         """Add locations to the map as end points."""
-        self.__add_locas(locas)
+        self.__add_locations(locas)
 
-    def __add_locas(self, locas:Iterable[Location]) -> None:
+    def __add_locations(self, locas:Iterable[Location]) -> None:
         """In list of locations, first check if they can be replaced by any that
         are already in the archive, to save on api-calls. If not, add them to 
         the archive."""
@@ -130,7 +160,7 @@ class Map:
         print(f"{already} locations found in archive; {notyet} locations are new.")
         #Add those which aren't there yet.
         if locas_toadd:
-            s = pd.Series([Directions(self.start, loca, **self._gmapsparameters)
+            s = pd.Series([Directions(self.start, loca, self.mode, **self._gmapsparameters)
                            for loca in locas_toadd])
             self._directions = self._directions.append(s, ignore_index=True)
     
@@ -150,11 +180,6 @@ class Map:
         mask = self._directions.apply(lambda d: d.state > -1)
         return self._directions[mask]
     
-    @property
-    def ends(self) -> pd.Series:
-        """Return series with end locations (no api-calls are made)."""
-        return self._directions.apply(lambda d: d.end)
-
     # Get results.
     
     def make_apicalls(self, do_estimate:bool=True):
@@ -261,112 +286,81 @@ class Map:
         return s_mov
 
 
-class Multimap:
+class Multimap(_Base):
     
-        
-    @staticmethod
-    def set_gmaps_api_key(apikey:str) -> None :
-        """Set the api key and create the gmaps client used for the geocoding."""
-        client = googlemaps.Client(key=apikey)
-        Location.set_gmaps_client(client)
-        Directions.set_gmaps_client(client)
-        
     # Instance initialization.
     
-    @classmethod    
-    def from_coords(cls, start_coords:Iterable, 
-                    modes:List[str]=['transit', 'driving'], **kwargs):
-        """Create instance of MultiMap, with start location as a (lat, lon)-Tuple."""
-        start = Location(start_coords)
-        return cls(start, modes, **kwargs)
-        
-    @classmethod    
-    def from_address(cls, start_address:str, 
-                     modes:List[str]=['transit', 'driving'], **kwargs):
-        """Create instance of MultiMap, with start location as an address string."""
-        start = Location.from_address(start_address)
-        return cls(start, modes, **kwargs)
-    
     @classmethod
-    def from_pickle(cls, filepath:str):
-        """Create instance of MultiMap, from a pickled class dictionary."""
-        with open(filepath, 'rb') as f:
-            instance = pickle.load(f)
-            instance.__dict__['_filepath'] = filepath #File might have been moved since it was pickled.
-        return instance
-
-    @classmethod
-    def from_map(cls, mapp, 
-                 modes:List[str]=['transit', 'driving'], **kwargs):
-        """Create instance of MultiMap, from an instance of Map. Start and 
-        Locations are taken from it; transport parameters are supplied in-
-        dividually for this new instance."""
-        instance = cls(mapp.start, modes, **kwargs)
-        instance.add_locations(mapp.directions_all().apply(lambda d: d.end))
+    def from_map(cls, mapp:Map, *args, **kwargs):
+        """Create class instance, from instance of Map. Start and end locations
+        are taken from it; transport parameters are supplied individually for 
+        this new instance. If map's mode matches one of the supplied modes, the
+        specified map is used for that mode, regardless of kwargs."""
+        instance = cls(mapp.start, *args, **kwargs)
+        instance.add_ends(mapp.ends)
+        for i, m in enumerate(instance.maps):
+            if m.mode == mapp.mode:
+                instance.maps[i] = mapp
+                break        
         return instance
     
-    def __init__(self, start:Location, modes:List[str]=['transit', 'driving'], **kwargs):
+    def __init__(self, start:Location, modes:List[str]=['transit', 'driving'],
+                 /, **kwargs):
         self._start = start
         self._gmapsparameters = kwargs
-        self._modes = modes
-        self._maps = {mode: Map(start, mode, **kwargs) for mode in modes}
-        
-    # Save and load pickle to file.
-        
-    @property 
-    def filepath(self) -> str:
-        """Return path of file that object was stored to, during the previous save."""
-        return self._filepath
-    def to_pickle(self, filepath:str=None, *, ignore_err=True) -> Union[bool,str]:
-        """Save object to provided path, if specified. If not specified, save
-        to path that was used during previous save. Returns file path."""
-        if filepath is not None:
-            self._filepath = filepath            
-        if self._filepath is None:
-            if not ignore_err:
-                raise ValueError("No file path has been set for the pickle file.")
-            else:
-                return False
-        with open(self._filepath, 'wb') as f:  
-            pickle.dump(self, f)
-        return filepath
-    def save(self) -> None:
-        if self._filepath is not None:
-            self.to_pickle()
+        self._filepath = None
+        self._maps = [Map(start, mode, **kwargs) for mode in modes]
            
-    # Manipulating Locations and Maps.
-     
-    @property
-    def start(self) -> Location:
-        """Return Location object for central point in the map."""
-        return self._start
+    # Main multimap attributes.
     
-    def add_ends(self, locas:Iterable[Location]) -> None:
-        """Add locations to the map as end points."""
-        for ma in self._maps.values():
-            ma.add_ends(locas)
-            
-    @property
-    def ends(self) -> pd.Series:
-        # Return the end points from any of the maps, as they are all the same.
-        return next(iter(self._maps.values()))._directions.apply(lambda d: d.end)
-
     @property
     def maps(self):
-        return self._maps
+        return self._maps    
     
+    @property
+    def modes(self):
+        return [ma.mode for ma in self.maps]
+    
+    @property
+    def ends(self) -> pd.Series:
+        """Return series with end locations (no api-calls are made)."""
+        # Return the end points from any of the maps, as they are all the same.
+        return self._maps[0]._directions.apply(lambda d: d.end)    
+    
+    # Manipulating Locations and Maps.
+
+    def add_ends(self, locas:Iterable[Location]) -> None:
+        """Add locations to the map as end points."""
+        for ma in self._maps:
+            ma.add_ends(locas)
+    
+    def directions_all(self, *states) -> pd.DataFrame:
+        """Return dataframe with directions for each mode, without making 
+        api-calls. Specify states to get subset of directions where each mode
+        has one of those states."""
+        df = pd.DataFrame({mo: ma.directions_all(*states)
+                           for mo, ma in zip(self.modes, self.maps)})
+        return df.dropna()
+    @property 
+    def directions(self) -> pd.DataFrame:
+        """Return series with directions that a route has been found to. (NB:
+        possibly forces many api-calls if these haven't been made yet.)"""
+        df = pd.DataFrame({mo: ma.directions 
+                           for mo, ma in zip(self.modes, self.maps)})
+        return df
+
     # Get results.
     
     def make_apicalls(self, do_estimate:bool=True):
-        for ma in self._maps.values():
+        for ma in self.maps:
             ma.make_apicalls(do_estimate)
             
     @property
     def apistats(self):
-        return "\n".join([f'{mo}:\n{ma.apistats}' for mo, ma in self._maps.items()])
+        return "\n".join([f'{mo}:\n{ma.apistats}' for mo, ma in zip(self.modes, self.maps)])
     
     def spoof_apicalls(self, do_spoof:bool=True):
-        for ma in self._maps.values():
+        for ma in self.maps:
             ma.spoof_apicalls(do_spoof)
             
     

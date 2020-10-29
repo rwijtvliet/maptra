@@ -22,5 +22,5 @@ for d in m.df.directions:
     dirs.append(dire)
 
 m2 = Map.from_map(m)
-m2._directions = p.DataFrame({'location': locas, 'directions':dirs})
+m2._directions = p.DataFrame({'location':locas, 'directions':dirs})
 m2.to_pickle('pickle/hamburg_walking_1000_10002.pkl')

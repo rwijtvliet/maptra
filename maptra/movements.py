@@ -76,7 +76,7 @@ from googlemaps.convert import decode_polyline, encode_polyline
 
 
 
-class _Movement:
+class _Base:
     """
     Parent class for movement.
     
@@ -148,7 +148,7 @@ class _Movement:
         return Location.from_latlon(self.start.ll.destination(dist, bear))  
 
 
-class Step(_Movement):
+class Step(_Base):
     """
     Type of Movement with partial information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
@@ -303,7 +303,7 @@ class PartialStep(Step):
         return False #always False, because there is a better (entire) step somewhere to check for this.
 
 
-class Directions(_Movement):
+class Directions(_Base):
     """
     Type of Movement with information about getting from start to end:
     * .distance and .duration apply to the whole movement from start;
@@ -346,7 +346,7 @@ class Directions(_Movement):
             return self._estimate['duration']
         return self._get_full_api_result()[0]['legs'][0]['duration']['value']
    
-    def check_estimate(self, other:_Movement) -> bool:
+    def check_estimate(self, other:_Base) -> bool:
         """Check if information in 'other' can give an estimate for duration and
         distance. (Or improve on the current estimate.)"""
         if self.state == 2:
